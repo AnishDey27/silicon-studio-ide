@@ -1,0 +1,77 @@
+{
+  "domains": {
+    "lint": {
+      "active_tool": "verilator",
+      "domain": "lint",
+      "schema_path": "schemas/tools/verilator.schema.json",
+      "legacy_schema_path": "schemas/lint/verilator.schema.json",
+      "manual_path": "docs/manuals/verilator_capabilities.md",
+      "version": "Verilator 5.053 devel rev v5.052-521-g6388139f7 (mod)",
+      "total_flags": 8
+    },
+    "synthesis": {
+      "active_tool": "yosys",
+      "domain": "synthesis",
+      "schema_path": "schemas/tools/yosys.schema.json",
+      "legacy_schema_path": "schemas/synthesis/yosys.schema.json",
+      "manual_path": "docs/manuals/yosys_capabilities.md",
+      "version": "Yosys 0.70+186 (git sha1 3718f7f13, Release, GNU /usr/bin/x86_64-w64-mingw32-g++ 15.2.1)",
+      "total_commands": 304,
+      "total_cell_models": 254
+    },
+    "simulation": {
+      "active_tool": "iverilog",
+      "domain": "simulation",
+      "schema_path": "schemas/tools/iverilog.schema.json",
+      "legacy_schema_path": "schemas/simulation/iverilog.schema.json",
+      "manual_path": "docs/manuals/iverilog_capabilities.md",
+      "version": "Icarus Verilog version 14.0 (devel) (s20260301-631-gce9868196-dirty)",
+      "total_flags": 5
+    },
+    "knowledge": {
+      "active_tool": "query_design_knowledge",
+      "manifest_path": "schemas/knowledge/kb_manifest.json",
+      "rules_dir": "schemas/knowledge/rules",
+      "manual_path": "docs/manuals/silicon_kb_catalog.md",
+      "validated_rules_count": 21,
+      "sub_domains": [
+        "cdc",
+        "fsm",
+        "lint",
+        "ppa",
+        "sdc"
+      ]
+    }
+  },
+  "tools": {
+    "verilator": {
+      "active_tool": "verilator",
+      "domain": "lint",
+      "schema_path": "schemas/tools/verilator.schema.json",
+      "legacy_schema_path": "schemas/lint/verilator.schema.json",
+      "manual_path": "docs/manuals/verilator_capabilities.md",
+      "version": "Verilator 5.053 devel rev v5.052-521-g6388139f7 (mod)",
+      "total_flags": 8
+    },
+    "yosys": {
+      "active_tool": "yosys",
+      "domain": "synthesis",
+      "schema_path": "schemas/tools/yosys.schema.json",
+      "legacy_schema_path": "schemas/synthesis/yosys.schema.json",
+      "manual_path": "docs/manuals/yosys_capabilities.md",
+      "version": "Yosys 0.70+186 (git sha1 3718f7f13, Release, GNU /usr/bin/x86_64-w64-mingw32-g++ 15.2.1)",
+      "total_commands": 304,
+      "total_cell_models": 254
+    },
+    "iverilog": {
+      "active_tool": "iverilog",
+      "domain": "simulation",
+      "schema_path": "schemas/tools/iverilog.schema.json",
+      "legacy_schema_path": "schemas/simulation/iverilog.schema.json",
+      "manual_path": "docs/manuals/iverilog_capabilities.md",
+      "version": "Icarus Verilog version 14.0 (devel) (s20260301-631-gce9868196-dirty)",
+      "total_flags": 5
+    }
+  },
+  "updated_at": "2026-11-04T13:18:43"
+}

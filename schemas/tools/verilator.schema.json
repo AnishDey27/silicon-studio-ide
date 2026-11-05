@@ -1,0 +1,50 @@
+{
+  "tool": "verilator",
+  "version": "Verilator 5.053 devel rev v5.052-521-g6388139f7 (mod)",
+  "generated_at": "2026-11-04T13:18:33",
+  "default_lint_invocation": [
+    "verilator_bin.exe",
+    "--lint-only",
+    "-Wall",
+    "-Wno-DECLFILENAME",
+    "-Wno-EOFNEWLINE",
+    "-sv",
+    "--top-module",
+    "<rtl_top>"
+  ],
+  "total_flags": 8,
+  "flags": [
+    {
+      "flag": "--lint-only",
+      "description": "Lint the files only, do not create C++ or sim output"
+    },
+    {
+      "flag": "-Wall",
+      "description": "Enable all style and static hazard lint warnings"
+    },
+    {
+      "flag": "-sv",
+      "description": "Enable IEEE 1800-2017 SystemVerilog parsing"
+    },
+    {
+      "flag": "--top-module <top>",
+      "description": "Specify top-level SystemVerilog module name"
+    },
+    {
+      "flag": "-Wno-DECLFILENAME",
+      "description": "Suppress module-name vs filename mismatch warning"
+    },
+    {
+      "flag": "-Wno-EOFNEWLINE",
+      "description": "Suppress missing trailing newline warning"
+    },
+    {
+      "flag": "-Wno-UNUSEDSIGNAL",
+      "description": "Suppress unused signal warning"
+    },
+    {
+      "flag": "-Wno-UNUSEDPARAM",
+      "description": "Suppress unused parameter warning"
+    }
+  ]
+}

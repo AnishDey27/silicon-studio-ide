@@ -1,0 +1,148 @@
+[
+  {
+    "rule_id": "CDC-001-PULSE-SWALLOW",
+    "domain": "cdc",
+    "category": "pulse_synchronization",
+    "severity": "CRITICAL_SILICON_FAILURE",
+    "target_agent": "@rtl-architect",
+    "verifier_agent": "@dv-debugger",
+    "source_reference": "CummingsSNUG2008Boston_CDC.pdf (Section 5: Passing Control Pulses)",
+    "summary": "Fast-to-slow clock domain single-cycle pulses must use a closed-loop toggle-handshake synchronizer with busy backpressure, never a direct 2-FF level synchronizer.",
+    "priority_tags": [
+      "pulse_swallowing",
+      "fast_to_slow",
+      "burst_pulse",
+      "toggle_handshake",
+      "toggle_synchronizer",
+      "dropped_pulse"
+    ],
+    "context_tags": [
+      "asynchronous",
+      "two_flop",
+      "clock_domain_crossing",
+      "cmd_pulse",
+      "done_pulse",
+      "backpressure"
+    ],
+    "hardware_rationale": "If destination clock period T_dst > source pulse width T_src, a single-cycle pulse in Domain A can assert and deassert completely between two rising edges of clkB, causing silent pulse loss. In burst mode, back-to-back pulses separated by less than 2*T_dst also coalesce unless a closed-loop busy_o handshake throttles the source FSM until the destination acknowledges receipt.",
+    "anti_pattern": "// [ANTI-PATTERN] Direct 2-FF synchronizer on fast single-cycle pulse drops pulses when T_dst > T_src\nalways_ff @(posedge clkB or negedge rst_n) begin\n  if (!rst_n) {sync_q2, sync_q1} <= 2'b00;\n  else        {sync_q2, sync_q1} <= {sync_q1, cmd_pulse_clkA};\nend\nassign pulse_out_clkB = sync_q2;",
+    "golden_template": "// [GOLDEN PATTERN] Closed-Loop Toggle-Handshake Pulse Synchronizer with Backpressure\nassign busy_o = toggle_src_q ^ ack_src_q2;\nalways_ff @(posedge clkA or negedge rst_n) begin\n  if (!rst_n) toggle_src_q <= 1'b0;\n  else if (pulse_in_clkA && !busy_o) toggle_src_q <= ~toggle_src_q;\nend\nalways_ff @(posedge clkB or negedge rst_n) begin\n  if (!rst_n) {sync_dst_q3, sync_dst_q2, sync_dst_q1} <= 3'b000;\n  else        {sync_dst_q3, sync_dst_q2, sync_dst_q1} <= {sync_dst_q2, sync_dst_q1, toggle_src_q};\nend\nassign pulse_out_clkB = sync_dst_q2 ^ sync_dst_q3;\nalways_ff @(posedge clkA or negedge rst_n) begin\n  if (!rst_n) {ack_src_q2, ack_src_q1} <= 2'b00;\n  else        {ack_src_q2, ack_src_q1} <= {ack_src_q1, sync_dst_q2};\nend",
+    "sdc_constraint": "set_clock_groups -asynchronous -group [get_clocks clkA] -group [get_clocks clkB]",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "LATCH",
+      "bad_canary_sv": "module canary_test(input logic clkA, clkB, rst_n, pulse_in, output logic pulse_out);\n  logic latch_q;\n  always_comb begin\n    if (pulse_in) latch_q = clkA ^ clkB ^ rst_n;\n  end\n  assign pulse_out = latch_q;\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic clkA, clkB, rst_n, pulse_in, output logic pulse_out, output logic busy_o);\n  logic toggle_src_q, sync_dst_q1, sync_dst_q2, sync_dst_q3, ack_src_q1, ack_src_q2;\n  assign busy_o = toggle_src_q ^ ack_src_q2;\n  always_ff @(posedge clkA or negedge rst_n) begin\n    if (!rst_n) toggle_src_q <= 1'b0;\n    else if (pulse_in && !busy_o) toggle_src_q <= ~toggle_src_q;\n  end\n  always_ff @(posedge clkB or negedge rst_n) begin\n    if (!rst_n) {sync_dst_q3, sync_dst_q2, sync_dst_q1} <= 3'b000;\n    else        {sync_dst_q3, sync_dst_q2, sync_dst_q1} <= {sync_dst_q2, sync_dst_q1, toggle_src_q};\n  end\n  always_ff @(posedge clkA or negedge rst_n) begin\n    if (!rst_n) {ack_src_q2, ack_src_q1} <= 2'b00;\n    else        {ack_src_q2, ack_src_q1} <= {ack_src_q1, sync_dst_q2};\n  end\n  assign pulse_out = sync_dst_q2 ^ sync_dst_q3;\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:40"
+  },
+  {
+    "rule_id": "CDC-002-GRAY-FIFO-PTR",
+    "domain": "cdc",
+    "category": "multi_bit_pointer_sync",
+    "severity": "CRITICAL_SILICON_FAILURE",
+    "target_agent": "@rtl-architect",
+    "verifier_agent": "@dv-debugger",
+    "source_reference": "CummingsSNUG2002SJ_FIFO1.pdf & cc_cdc_fifo_gray.sv",
+    "summary": "Asynchronous FIFO read/write pointers must be converted to Gray code and registered in the source domain before passing through 2-FF synchronizers.",
+    "priority_tags": [
+      "gray_code",
+      "async_fifo",
+      "pointer_sync",
+      "multi_bit_bus",
+      "wptr_gray",
+      "rptr_gray",
+      "wrap_flags"
+    ],
+    "context_tags": [
+      "fifo_full",
+      "fifo_empty",
+      "binary_to_gray",
+      "metastability",
+      "clock_domain_crossing"
+    ],
+    "hardware_rationale": "Synchronizing a multi-bit binary counter directly across asynchronous clocks causes catastrophic pointer corruption because multiple bits flip simultaneously (e.g., 0111 -> 1000). Under interconnect skew and setup/hold metastability, the receiving domain samples a random combination of old and new bits. Gray code (bin ^ (bin >> 1)) guarantees unit Hamming distance (1 bit flip per increment).",
+    "anti_pattern": "// [ANTI-PATTERN] Passing multi-bit binary pointer directly into 2-FF synchronizer\nalways_ff @(posedge rclk or negedge rrst_n) begin\n  if (!rrst_n) {wptr_bin_sync2, wptr_bin_sync1} <= '0;\n  else         {wptr_bin_sync2, wptr_bin_sync1} <= {wptr_bin_sync1, wptr_bin_q};\nend",
+    "golden_template": "// [GOLDEN PATTERN] Binary-to-Gray conversion + source registration prior to 2-FF sync\nassign wptr_bin_d  = wptr_bin_q + {{ADDR_W{1'b0}}, (winc_i && !wfull_o)};\nassign wptr_gray_d = (wptr_bin_d >> 1) ^ wptr_bin_d;\nalways_ff @(posedge wclk or negedge wrst_n) begin\n  if (!wrst_n) begin wptr_bin_q <= '0; wptr_gray_q <= '0; end\n  else         begin wptr_bin_q <= wptr_bin_d; wptr_gray_q <= wptr_gray_d; end\nend\nalways_ff @(posedge rclk or negedge rrst_n) begin\n  if (!rrst_n) {wq2_rptr, wq1_rptr} <= '0;\n  else         {wq2_rptr, wq1_rptr} <= {wq1_rptr, wptr_gray_q};\nend",
+    "sdc_constraint": "set_max_delay -from [get_pins wptr_gray_q*/Q] -to [get_pins wq1_rptr*/D] -datapath_only [expr $T_wclk * 0.8]",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "WIDTH",
+      "bad_canary_sv": "module canary_test(input logic wclk, rclk, rst_n, winc, output logic [3:0] sync_ptr);\n  logic [3:0] bin_q;\n  always_ff @(posedge wclk or negedge rst_n) if (!rst_n) bin_q <= 4'd0; else bin_q <= bin_q + 8'd255;\n  always_ff @(posedge rclk or negedge rst_n) if (!rst_n) sync_ptr <= 4'd0; else sync_ptr <= bin_q;\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic wclk, rclk, rst_n, winc, output logic [3:0] sync_gray_o);\n  logic [3:0] bin_q, bin_d, gray_q, gray_d, sync_q1, sync_q2;\n  assign bin_d  = bin_q + {3'b000, winc};\n  assign gray_d = (bin_d >> 1) ^ bin_d;\n  always_ff @(posedge wclk or negedge rst_n) begin\n    if (!rst_n) begin bin_q <= 4'd0; gray_q <= 4'd0; end\n    else         begin bin_q <= bin_d; gray_q <= gray_d; end\n  end\n  always_ff @(posedge rclk or negedge rst_n) begin\n    if (!rst_n) {sync_q2, sync_q1} <= 8'd0;\n    else        {sync_q2, sync_q1} <= {sync_q1, gray_q};\n  end\n  assign sync_gray_o = sync_q2;\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:41"
+  },
+  {
+    "rule_id": "CDC-003-REQ-ACK-HANDSHAKE",
+    "domain": "cdc",
+    "category": "multi_bit_data_bus_cdc",
+    "severity": "CRITICAL_SILICON_FAILURE",
+    "target_agent": "@rtl-architect",
+    "verifier_agent": "@dv-debugger",
+    "source_reference": "CummingsSNUG2008Boston_CDC.pdf (Section 7: Multi-Bit CDC Handshake)",
+    "summary": "Arbitrary multi-bit data buses crossing asynchronous domains must be held stable by the source register while a synchronized Req/Ack handshake completes.",
+    "priority_tags": [
+      "four_phase_handshake",
+      "req_ack",
+      "closed_loop_cdc",
+      "bus_transfer",
+      "data_bus_cdc"
+    ],
+    "context_tags": [
+      "multi_bit",
+      "asynchronous",
+      "sample_enable",
+      "valid_ready_cdc"
+    ],
+    "hardware_rationale": "Non-Gray multi-bit data words cannot be synchronized bit-by-bit. Instead, the source domain must latch the data word into a holding register (data_hold_q), assert a request level/toggle, wait for the destination 2-FF synchronizer to detect the request edge and safely sample data_hold_q, and wait for the synchronized acknowledge before updating data_hold_q.",
+    "anti_pattern": "// [ANTI-PATTERN] Sampling an asynchronous multi-bit data bus without holding it stable via Req/Ack\nalways_ff @(posedge clkB) begin\n  data_sync_q <= async_data_clkA;\nend",
+    "golden_template": "// [GOLDEN PATTERN] Stable Holding Register + Synchronized Request Edge Sampling\nalways_ff @(posedge clkA or negedge rst_n) begin\n  if (!rst_n) begin data_hold_q <= '0; req_tog_q <= 1'b0; end\n  else if (send_en && !busy_o) begin data_hold_q <= data_in; req_tog_q <= ~req_tog_q; end\nend\nalways_ff @(posedge clkB or negedge rst_n) begin\n  if (!rst_n) begin {req_b3, req_b2, req_b1} <= 3'b000; data_out_q <= '0; end\n  else begin\n    {req_b3, req_b2, req_b1} <= {req_b2, req_b1, req_tog_q};\n    if (req_b2 ^ req_b3) data_out_q <= data_hold_q;\n  end\nend",
+    "sdc_constraint": "set_false_path -from [get_Cells data_hold_q*] -to [get_Cells data_out_q*]",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "BLKSEQ",
+      "bad_canary_sv": "module canary_test(input logic clkA, clkB, rst_n, send_en, input logic [7:0] data_i, output logic [7:0] data_o);\n  always_ff @(posedge clkB) begin\n    data_o = data_i ^ {8{clkA & rst_n & send_en}};\n  end\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic clkA, clkB, rst_n, send_en, input logic [7:0] data_i, output logic [7:0] data_o, output logic busy_o);\n  logic [7:0] data_hold_q;\n  logic req_tog_q, req_b1, req_b2, req_b3, ack_a1, ack_a2;\n  assign busy_o = req_tog_q ^ ack_a2;\n  always_ff @(posedge clkA or negedge rst_n) begin\n    if (!rst_n) begin data_hold_q <= 8'd0; req_tog_q <= 1'b0; end\n    else if (send_en && !busy_o) begin data_hold_q <= data_i; req_tog_q <= ~req_tog_q; end\n  end\n  always_ff @(posedge clkB or negedge rst_n) begin\n    if (!rst_n) begin {req_b3, req_b2, req_b1} <= 3'b000; data_o <= 8'd0; end\n    else begin\n      {req_b3, req_b2, req_b1} <= {req_b2, req_b1, req_tog_q};\n      if (req_b2 ^ req_b3) data_o <= data_hold_q;\n    end\n  end\n  always_ff @(posedge clkA or negedge rst_n) begin\n    if (!rst_n) {ack_a2, ack_a1} <= 2'b00;\n    else        {ack_a2, ack_a1} <= {ack_a1, req_b2};\n  end\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:41"
+  },
+  {
+    "rule_id": "CDC-004-SYNC-CONVERGENCE",
+    "domain": "cdc",
+    "category": "reconvergence_hazard",
+    "severity": "CRITICAL_SILICON_FAILURE",
+    "target_agent": "@rtl-architect",
+    "verifier_agent": "@dv-debugger",
+    "source_reference": "CummingsSNUG2008Boston_CDC.pdf & snug03_reset_part_deux.pdf",
+    "summary": "Never feed combinational logic directly into a 2-FF synchronizer or reconverge two independent 2-FF synchronizers in the destination domain.",
+    "priority_tags": [
+      "reconvergence",
+      "combinational_glitch_cdc",
+      "divergent_sync",
+      "reset_synchronizer",
+      "skew_violation"
+    ],
+    "context_tags": [
+      "asynchronous",
+      "two_flop",
+      "metastability",
+      "glitch_filter"
+    ],
+    "hardware_rationale": "Combinational logic in the source domain produces transient hazards/glitches during input transitions; feeding a combinational net directly into a synchronizer allows clkB to sample a glitch pulse. Always register the signal in the source domain (clkA) immediately before the CDC boundary, and coalesce control conditions before crossing.",
+    "anti_pattern": "// [ANTI-PATTERN] Combinational AND gate driving a 2-FF synchronizer directly\nassign comb_trig = en_a & valid_a;\nalways_ff @(posedge clkB) {sync_q2, sync_q1} <= {sync_q1, comb_trig};",
+    "golden_template": "// [GOLDEN PATTERN] Register combinational condition in source domain (clkA) before 2-FF sync\nalways_ff @(posedge clkA or negedge rst_n) begin\n  if (!rst_n) src_launch_q <= 1'b0;\n  else        src_launch_q <= en_a & valid_a;\nend\nalways_ff @(posedge clkB or negedge rst_n) begin\n  if (!rst_n) {sync_q2, sync_q1} <= 2'b00;\n  else        {sync_q2, sync_q1} <= {sync_q1, src_launch_q};\nend",
+    "sdc_constraint": "set_clock_groups -asynchronous -group [get_clocks clkA] -group [get_clocks clkB]",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "LATCH",
+      "bad_canary_sv": "module canary_test(input logic clkA, clkB, rst_n, en_a, valid_a, output logic sync_o);\n  logic comb_trig;\n  always_comb begin if (en_a) comb_trig = valid_a ^ clkA ^ clkB ^ rst_n; end\n  assign sync_o = comb_trig;\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic clkA, clkB, rst_n, en_a, valid_a, output logic sync_o);\n  logic src_launch_q, sync_q1, sync_q2;\n  always_ff @(posedge clkA or negedge rst_n) begin\n    if (!rst_n) src_launch_q <= 1'b0;\n    else        src_launch_q <= en_a & valid_a;\n  end\n  always_ff @(posedge clkB or negedge rst_n) begin\n    if (!rst_n) {sync_q2, sync_q1} <= 2'b00;\n    else        {sync_q2, sync_q1} <= {sync_q1, src_launch_q};\n  end\n  assign sync_o = sync_q2;\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:41"
+  }
+]

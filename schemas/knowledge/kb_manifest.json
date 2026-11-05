@@ -1,0 +1,94 @@
+{
+  "generated_at": "2026-11-04T13:18:43",
+  "total_candidates_tested": 21,
+  "total_verified_rules": 21,
+  "rejected_count": 0,
+  "domains": {
+    "cdc": 4,
+    "fsm": 4,
+    "lint": 6,
+    "ppa": 4,
+    "sdc": 3
+  },
+  "corpus_files_indexed": [
+    {
+      "filename": "cc_cdc_fifo_gray.sv",
+      "extension": ".sv",
+      "size_kb": 14.18,
+      "location": "schema_factory/knowledge_factory/corpus/cc_cdc_fifo_gray.sv"
+    },
+    {
+      "filename": "coverage-cookbook.pdf",
+      "extension": ".pdf",
+      "size_kb": 2785.22,
+      "location": "schema_factory/knowledge_factory/corpus/coverage-cookbook.pdf"
+    },
+    {
+      "filename": "cummings-case-snug99.pdf",
+      "extension": ".pdf",
+      "size_kb": 72.37,
+      "location": "schema_factory/knowledge_factory/corpus/cummings-case-snug99.pdf"
+    },
+    {
+      "filename": "CummingsSNUG2002SJ_FIFO1.pdf",
+      "extension": ".pdf",
+      "size_kb": 136.85,
+      "location": "schema_factory/knowledge_factory/corpus/CummingsSNUG2002SJ_FIFO1.pdf"
+    },
+    {
+      "filename": "CummingsSNUG2008Boston_CDC.pdf",
+      "extension": ".pdf",
+      "size_kb": 11226.23,
+      "location": "schema_factory/knowledge_factory/corpus/CummingsSNUG2008Boston_CDC.pdf"
+    },
+    {
+      "filename": "DVCodingStyle.md",
+      "extension": ".md",
+      "size_kb": 54.53,
+      "location": "schema_factory/knowledge_factory/corpus/DVCodingStyle.md"
+    },
+    {
+      "filename": "prim_assert.sv",
+      "extension": ".sv",
+      "size_kb": 9.73,
+      "location": "schema_factory/knowledge_factory/corpus/prim_assert.sv"
+    },
+    {
+      "filename": "rule_example.json",
+      "extension": ".json",
+      "size_kb": 1.6,
+      "location": "schema_factory/knowledge_factory/corpus/rule_example.json"
+    },
+    {
+      "filename": "snug03_reset_part_deux.pdf",
+      "extension": ".pdf",
+      "size_kb": 204.69,
+      "location": "schema_factory/knowledge_factory/corpus/snug03_reset_part_deux.pdf"
+    },
+    {
+      "filename": "uvm-cookbook.pdf",
+      "extension": ".pdf",
+      "size_kb": 9547.85,
+      "location": "schema_factory/knowledge_factory/corpus/uvm-cookbook.pdf"
+    },
+    {
+      "filename": "VerilogCodingStyle.md",
+      "extension": ".md",
+      "size_kb": 93.06,
+      "location": "schema_factory/knowledge_factory/corpus/VerilogCodingStyle.md"
+    },
+    {
+      "filename": "warnings.rst",
+      "extension": ".rst",
+      "size_kb": 88.44,
+      "location": "schema_factory/knowledge_factory/corpus/warnings.rst"
+    },
+    {
+      "filename": "yosyshq-readthedocs-io-yosys-en-0.38.pdf",
+      "extension": ".pdf",
+      "size_kb": 1304.69,
+      "location": "schema_factory/knowledge_factory/corpus/yosyshq-readthedocs-io-yosys-en-0.38.pdf"
+    }
+  ],
+  "failed_rules": []
+}

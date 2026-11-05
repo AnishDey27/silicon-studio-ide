@@ -1,0 +1,44 @@
+# =============================================================================
+# Silicon Studio IDE V3.0 — .gitignore
+# Excludes local virtual environments, Python bytecode, OS metadata, and
+# runtime-generated EDA build artifacts while keeping source RTL, testbenches,
+# PDK Liberty files, agents, skills, and schema factories tracked.
+# =============================================================================
+
+# 1. Python Virtual Environment & Bytecode
+.venv/
+venv/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 2. Per-Project Runtime Generated EDA Build Compartments
+# (Created automatically by 1.Hier -> 2.Lint -> 3.Sim -> 4.Synth & COI tools)
+projects/*/build/
+*.vcd
+*.fst
+*.out
+*.vvp
+*.eblif
+*.asc
+*.bin
+
+# 3. Runtime Workspace Session Lock / Ephemeral State
+.silicon_studio/workspace.json
+*.tmp
+*.bak
+*.swp
+*~
+
+# 4. Auto-Generated Schemas & Capability Manuals (Rebuilt by scripts/bootstrap.ps1)
+# Uncomment the two lines below if you want fresh clones to generate schemas/ via bootstrap.ps1:
+# schemas/
+# docs/manuals/*_capabilities.md
+
+# 5. Operating System & Editor Metadata
+desktop.ini
+Thumbs.db
+.DS_Store

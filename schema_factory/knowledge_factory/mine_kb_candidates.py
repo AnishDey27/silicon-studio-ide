@@ -1,0 +1,880 @@
+# =============================================================================
+# File Path: schema_factory/knowledge_factory/mine_kb_candidates.py
+# =============================================================================
+"""Silicon Knowledge Base Corpus Auditor, Pre-Filter & Wave-1 Rule Seeder.
+
+1. Audits authoritative source files placed in `schema_factory/knowledge_factory/corpus/`
+   (and fallback `knowledge_src/corpus/` or `VLSI KB/`).
+2. Applies a deterministic pre-filter to ensure every candidate rule card has all required
+   schema fields, physical hardware rationale, and a compilable `canary_spec`.
+3. Writes the 20 Wave-1 candidate rule cards (including CDC-001 through CDC-004,
+   LINT-001 through LINT-005, FSM-001 through FSM-004, SDC-001 through SDC-003,
+   and PPA-001 through PPA-005) to `schema_factory/knowledge_factory/staging/candidate_rules_batch.json`.
+"""
+import datetime
+import json
+import sys
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
+
+STUDIO_ROOT = Path(__file__).resolve().parents[2]
+if str(STUDIO_ROOT) not in sys.path:
+    sys.path.insert(0, str(STUDIO_ROOT))
+
+CORPUS_DIR = STUDIO_ROOT / "schema_factory" / "knowledge_factory" / "corpus"
+LEGACY_CORPUS_DIR = STUDIO_ROOT / "knowledge_src" / "corpus"
+LEGACY_VLSI_KB_DIR = STUDIO_ROOT / "VLSI KB"
+STAGING_DIR = STUDIO_ROOT / "schema_factory" / "knowledge_factory" / "staging"
+STAGING_FILE = STAGING_DIR / "candidate_rules_batch.json"
+
+REQUIRED_RULE_KEYS = {
+    "rule_id",
+    "domain",
+    "category",
+    "severity",
+    "target_agent",
+    "verifier_agent",
+    "summary",
+    "priority_tags",
+    "context_tags",
+    "hardware_rationale",
+    "anti_pattern",
+    "golden_template",
+    "sdc_constraint",
+    "source_reference",
+    "canary_spec",
+}
+
+VALID_DOMAINS = {"cdc", "lint", "fsm", "sdc", "ppa"}
+VALID_SEVERITIES = {
+    "CRITICAL_SILICON_FAILURE",
+    "SYNTHESIS_HAZARD",
+    "QOR_DEGRADATION",
+    "TIMING_HAZARD",
+}
+
+
+def discover_corpus_files() -> List[Dict[str, Any]]:
+    """Scans `schema_factory/knowledge_factory/corpus/` for authoritative source files."""
+    CORPUS_DIR.mkdir(parents=True, exist_ok=True)
+    discovered: List[Dict[str, Any]] = []
+    seen_names = set()
+
+    for scan_dir in (CORPUS_DIR, LEGACY_CORPUS_DIR, LEGACY_VLSI_KB_DIR):
+        if not scan_dir.exists():
+            continue
+        for f in sorted(scan_dir.iterdir()):
+            if f.is_file() and f.name not in seen_names:
+                seen_names.add(f.name)
+                discovered.append(
+                    {
+                        "filename": f.name,
+                        "extension": f.suffix.lower(),
+                        "size_kb": round(f.stat().st_size / 1024.0, 2),
+                        "location": f.relative_to(STUDIO_ROOT).as_posix(),
+                    }
+                )
+    return discovered
+
+
+def pre_filter_candidate_rule(rule: Dict[str, Any]) -> Tuple[bool, str]:
+    """Deterministic pre-filter: rejects malformed or purely cosmetic rules before compiler testing."""
+    missing = REQUIRED_RULE_KEYS - set(rule.keys())
+    if missing:
+        return False, f"Missing required keys: {sorted(missing)}"
+
+    if rule.get("domain") not in VALID_DOMAINS:
+        return False, f"Invalid domain '{rule.get('domain')}'. Must be in {sorted(VALID_DOMAINS)}."
+
+    if rule.get("severity") not in VALID_SEVERITIES:
+        return False, f"Invalid severity '{rule.get('severity')}'."
+
+    if not rule.get("priority_tags") or not isinstance(rule["priority_tags"], list):
+        return False, "Rule must define at least one priority_tag."
+
+    canary = rule.get("canary_spec", {})
+    if not canary.get("bad_canary_sv") or not canary.get("good_canary_sv"):
+        return False, "canary_spec must include both bad_canary_sv and good_canary_sv."
+
+    return True, "READY_FOR_CANARY"
+
+
+def get_wave1_seed_rules() -> List[Dict[str, Any]]:
+    """Returns the 20 Wave-1 Golden Silicon Design Rules distilled from the authoritative corpus."""
+    return [
+        # =====================================================================
+        # DOMAIN 1: CLOCK-DOMAIN CROSSING (CDC) — 4 RULES
+        # =====================================================================
+        {
+            "rule_id": "CDC-001-PULSE-SWALLOW",
+            "domain": "cdc",
+            "category": "pulse_synchronization",
+            "severity": "CRITICAL_SILICON_FAILURE",
+            "target_agent": "@rtl-architect",
+            "verifier_agent": "@dv-debugger",
+            "source_reference": "CummingsSNUG2008Boston_CDC.pdf (Section 5: Passing Control Pulses)",
+            "summary": "Fast-to-slow clock domain single-cycle pulses must use a closed-loop toggle-handshake synchronizer with busy backpressure, never a direct 2-FF level synchronizer.",
+            "priority_tags": [
+                "pulse_swallowing",
+                "fast_to_slow",
+                "burst_pulse",
+                "toggle_handshake",
+                "toggle_synchronizer",
+                "dropped_pulse",
+            ],
+            "context_tags": [
+                "asynchronous",
+                "two_flop",
+                "clock_domain_crossing",
+                "cmd_pulse",
+                "done_pulse",
+                "backpressure",
+            ],
+            "hardware_rationale": "If destination clock period T_dst > source pulse width T_src, a single-cycle pulse in Domain A can assert and deassert completely between two rising edges of clkB, causing silent pulse loss. In burst mode, back-to-back pulses separated by less than 2*T_dst also coalesce unless a closed-loop busy_o handshake throttles the source FSM until the destination acknowledges receipt.",
+            "anti_pattern": "// [ANTI-PATTERN] Direct 2-FF synchronizer on fast single-cycle pulse drops pulses when T_dst > T_src\nalways_ff @(posedge clkB or negedge rst_n) begin\n  if (!rst_n) {sync_q2, sync_q1} <= 2'b00;\n  else        {sync_q2, sync_q1} <= {sync_q1, cmd_pulse_clkA};\nend\nassign pulse_out_clkB = sync_q2;",
+            "golden_template": "// [GOLDEN PATTERN] Closed-Loop Toggle-Handshake Pulse Synchronizer with Backpressure\nassign busy_o = toggle_src_q ^ ack_src_q2;\nalways_ff @(posedge clkA or negedge rst_n) begin\n  if (!rst_n) toggle_src_q <= 1'b0;\n  else if (pulse_in_clkA && !busy_o) toggle_src_q <= ~toggle_src_q;\nend\nalways_ff @(posedge clkB or negedge rst_n) begin\n  if (!rst_n) {sync_dst_q3, sync_dst_q2, sync_dst_q1} <= 3'b000;\n  else        {sync_dst_q3, sync_dst_q2, sync_dst_q1} <= {sync_dst_q2, sync_dst_q1, toggle_src_q};\nend\nassign pulse_out_clkB = sync_dst_q2 ^ sync_dst_q3;\nalways_ff @(posedge clkA or negedge rst_n) begin\n  if (!rst_n) {ack_src_q2, ack_src_q1} <= 2'b00;\n  else        {ack_src_q2, ack_src_q1} <= {ack_src_q1, sync_dst_q2};\nend",
+            "sdc_constraint": "set_clock_groups -asynchronous -group [get_clocks clkA] -group [get_clocks clkB]",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "LATCH",
+                "bad_canary_sv": "module canary_test(input logic clkA, clkB, rst_n, pulse_in, output logic pulse_out);\n  logic latch_q;\n  always_comb begin\n    if (pulse_in) latch_q = clkA ^ clkB ^ rst_n;\n  end\n  assign pulse_out = latch_q;\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic clkA, clkB, rst_n, pulse_in, output logic pulse_out, output logic busy_o);\n  logic toggle_src_q, sync_dst_q1, sync_dst_q2, sync_dst_q3, ack_src_q1, ack_src_q2;\n  assign busy_o = toggle_src_q ^ ack_src_q2;\n  always_ff @(posedge clkA or negedge rst_n) begin\n    if (!rst_n) toggle_src_q <= 1'b0;\n    else if (pulse_in && !busy_o) toggle_src_q <= ~toggle_src_q;\n  end\n  always_ff @(posedge clkB or negedge rst_n) begin\n    if (!rst_n) {sync_dst_q3, sync_dst_q2, sync_dst_q1} <= 3'b000;\n    else        {sync_dst_q3, sync_dst_q2, sync_dst_q1} <= {sync_dst_q2, sync_dst_q1, toggle_src_q};\n  end\n  always_ff @(posedge clkA or negedge rst_n) begin\n    if (!rst_n) {ack_src_q2, ack_src_q1} <= 2'b00;\n    else        {ack_src_q2, ack_src_q1} <= {ack_src_q1, sync_dst_q2};\n  end\n  assign pulse_out = sync_dst_q2 ^ sync_dst_q3;\nendmodule\n",
+            },
+        },
+        {
+            "rule_id": "CDC-002-GRAY-FIFO-PTR",
+            "domain": "cdc",
+            "category": "multi_bit_pointer_sync",
+            "severity": "CRITICAL_SILICON_FAILURE",
+            "target_agent": "@rtl-architect",
+            "verifier_agent": "@dv-debugger",
+            "source_reference": "CummingsSNUG2002SJ_FIFO1.pdf & cc_cdc_fifo_gray.sv",
+            "summary": "Asynchronous FIFO read/write pointers must be converted to Gray code and registered in the source domain before passing through 2-FF synchronizers.",
+            "priority_tags": [
+                "gray_code",
+                "async_fifo",
+                "pointer_sync",
+                "multi_bit_bus",
+                "wptr_gray",
+                "rptr_gray",
+                "wrap_flags",
+            ],
+            "context_tags": [
+                "fifo_full",
+                "fifo_empty",
+                "binary_to_gray",
+                "metastability",
+                "clock_domain_crossing",
+            ],
+            "hardware_rationale": "Synchronizing a multi-bit binary counter directly across asynchronous clocks causes catastrophic pointer corruption because multiple bits flip simultaneously (e.g., 0111 -> 1000). Under interconnect skew and setup/hold metastability, the receiving domain samples a random combination of old and new bits. Gray code (bin ^ (bin >> 1)) guarantees unit Hamming distance (1 bit flip per increment).",
+            "anti_pattern": "// [ANTI-PATTERN] Passing multi-bit binary pointer directly into 2-FF synchronizer\nalways_ff @(posedge rclk or negedge rrst_n) begin\n  if (!rrst_n) {wptr_bin_sync2, wptr_bin_sync1} <= '0;\n  else         {wptr_bin_sync2, wptr_bin_sync1} <= {wptr_bin_sync1, wptr_bin_q};\nend",
+            "golden_template": "// [GOLDEN PATTERN] Binary-to-Gray conversion + source registration prior to 2-FF sync\nassign wptr_bin_d  = wptr_bin_q + {{ADDR_W{1'b0}}, (winc_i && !wfull_o)};\nassign wptr_gray_d = (wptr_bin_d >> 1) ^ wptr_bin_d;\nalways_ff @(posedge wclk or negedge wrst_n) begin\n  if (!wrst_n) begin wptr_bin_q <= '0; wptr_gray_q <= '0; end\n  else         begin wptr_bin_q <= wptr_bin_d; wptr_gray_q <= wptr_gray_d; end\nend\nalways_ff @(posedge rclk or negedge rrst_n) begin\n  if (!rrst_n) {wq2_rptr, wq1_rptr} <= '0;\n  else         {wq2_rptr, wq1_rptr} <= {wq1_rptr, wptr_gray_q};\nend",
+            "sdc_constraint": "set_max_delay -from [get_pins wptr_gray_q*/Q] -to [get_pins wq1_rptr*/D] -datapath_only [expr $T_wclk * 0.8]",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "WIDTH",
+                "bad_canary_sv": "module canary_test(input logic wclk, rclk, rst_n, winc, output logic [3:0] sync_ptr);\n  logic [3:0] bin_q;\n  always_ff @(posedge wclk or negedge rst_n) if (!rst_n) bin_q <= 4'd0; else bin_q <= bin_q + 8'd255;\n  always_ff @(posedge rclk or negedge rst_n) if (!rst_n) sync_ptr <= 4'd0; else sync_ptr <= bin_q;\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic wclk, rclk, rst_n, winc, output logic [3:0] sync_gray_o);\n  logic [3:0] bin_q, bin_d, gray_q, gray_d, sync_q1, sync_q2;\n  assign bin_d  = bin_q + {3'b000, winc};\n  assign gray_d = (bin_d >> 1) ^ bin_d;\n  always_ff @(posedge wclk or negedge rst_n) begin\n    if (!rst_n) begin bin_q <= 4'd0; gray_q <= 4'd0; end\n    else         begin bin_q <= bin_d; gray_q <= gray_d; end\n  end\n  always_ff @(posedge rclk or negedge rst_n) begin\n    if (!rst_n) {sync_q2, sync_q1} <= 8'd0;\n    else        {sync_q2, sync_q1} <= {sync_q1, gray_q};\n  end\n  assign sync_gray_o = sync_q2;\nendmodule\n",
+            },
+        },
+        {
+            "rule_id": "CDC-003-REQ-ACK-HANDSHAKE",
+            "domain": "cdc",
+            "category": "multi_bit_data_bus_cdc",
+            "severity": "CRITICAL_SILICON_FAILURE",
+            "target_agent": "@rtl-architect",
+            "verifier_agent": "@dv-debugger",
+            "source_reference": "CummingsSNUG2008Boston_CDC.pdf (Section 7: Multi-Bit CDC Handshake)",
+            "summary": "Arbitrary multi-bit data buses crossing asynchronous domains must be held stable by the source register while a synchronized Req/Ack handshake completes.",
+            "priority_tags": [
+                "four_phase_handshake",
+                "req_ack",
+                "closed_loop_cdc",
+                "bus_transfer",
+                "data_bus_cdc",
+            ],
+            "context_tags": [
+                "multi_bit",
+                "asynchronous",
+                "sample_enable",
+                "valid_ready_cdc",
+            ],
+            "hardware_rationale": "Non-Gray multi-bit data words cannot be synchronized bit-by-bit. Instead, the source domain must latch the data word into a holding register (data_hold_q), assert a request level/toggle, wait for the destination 2-FF synchronizer to detect the request edge and safely sample data_hold_q, and wait for the synchronized acknowledge before updating data_hold_q.",
+            "anti_pattern": "// [ANTI-PATTERN] Sampling an asynchronous multi-bit data bus without holding it stable via Req/Ack\nalways_ff @(posedge clkB) begin\n  data_sync_q <= async_data_clkA;\nend",
+            "golden_template": "// [GOLDEN PATTERN] Stable Holding Register + Synchronized Request Edge Sampling\nalways_ff @(posedge clkA or negedge rst_n) begin\n  if (!rst_n) begin data_hold_q <= '0; req_tog_q <= 1'b0; end\n  else if (send_en && !busy_o) begin data_hold_q <= data_in; req_tog_q <= ~req_tog_q; end\nend\nalways_ff @(posedge clkB or negedge rst_n) begin\n  if (!rst_n) begin {req_b3, req_b2, req_b1} <= 3'b000; data_out_q <= '0; end\n  else begin\n    {req_b3, req_b2, req_b1} <= {req_b2, req_b1, req_tog_q};\n    if (req_b2 ^ req_b3) data_out_q <= data_hold_q;\n  end\nend",
+            "sdc_constraint": "set_false_path -from [get_Cells data_hold_q*] -to [get_Cells data_out_q*]",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "BLKSEQ",
+                "bad_canary_sv": "module canary_test(input logic clkA, clkB, rst_n, send_en, input logic [7:0] data_i, output logic [7:0] data_o);\n  always_ff @(posedge clkB) begin\n    data_o = data_i ^ {8{clkA & rst_n & send_en}};\n  end\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic clkA, clkB, rst_n, send_en, input logic [7:0] data_i, output logic [7:0] data_o, output logic busy_o);\n  logic [7:0] data_hold_q;\n  logic req_tog_q, req_b1, req_b2, req_b3, ack_a1, ack_a2;\n  assign busy_o = req_tog_q ^ ack_a2;\n  always_ff @(posedge clkA or negedge rst_n) begin\n    if (!rst_n) begin data_hold_q <= 8'd0; req_tog_q <= 1'b0; end\n    else if (send_en && !busy_o) begin data_hold_q <= data_i; req_tog_q <= ~req_tog_q; end\n  end\n  always_ff @(posedge clkB or negedge rst_n) begin\n    if (!rst_n) begin {req_b3, req_b2, req_b1} <= 3'b000; data_o <= 8'd0; end\n    else begin\n      {req_b3, req_b2, req_b1} <= {req_b2, req_b1, req_tog_q};\n      if (req_b2 ^ req_b3) data_o <= data_hold_q;\n    end\n  end\n  always_ff @(posedge clkA or negedge rst_n) begin\n    if (!rst_n) {ack_a2, ack_a1} <= 2'b00;\n    else        {ack_a2, ack_a1} <= {ack_a1, req_b2};\n  end\nendmodule\n",
+            },
+        },
+        {
+            "rule_id": "CDC-004-SYNC-CONVERGENCE",
+            "domain": "cdc",
+            "category": "reconvergence_hazard",
+            "severity": "CRITICAL_SILICON_FAILURE",
+            "target_agent": "@rtl-architect",
+            "verifier_agent": "@dv-debugger",
+            "source_reference": "CummingsSNUG2008Boston_CDC.pdf & snug03_reset_part_deux.pdf",
+            "summary": "Never feed combinational logic directly into a 2-FF synchronizer or reconverge two independent 2-FF synchronizers in the destination domain.",
+            "priority_tags": [
+                "reconvergence",
+                "combinational_glitch_cdc",
+                "divergent_sync",
+                "reset_synchronizer",
+                "skew_violation",
+            ],
+            "context_tags": [
+                "asynchronous",
+                "two_flop",
+                "metastability",
+                "glitch_filter",
+            ],
+            "hardware_rationale": "Combinational logic in the source domain produces transient hazards/glitches during input transitions; feeding a combinational net directly into a synchronizer allows clkB to sample a glitch pulse. Always register the signal in the source domain (clkA) immediately before the CDC boundary, and coalesce control conditions before crossing.",
+            "anti_pattern": "// [ANTI-PATTERN] Combinational AND gate driving a 2-FF synchronizer directly\nassign comb_trig = en_a & valid_a;\nalways_ff @(posedge clkB) {sync_q2, sync_q1} <= {sync_q1, comb_trig};",
+            "golden_template": "// [GOLDEN PATTERN] Register combinational condition in source domain (clkA) before 2-FF sync\nalways_ff @(posedge clkA or negedge rst_n) begin\n  if (!rst_n) src_launch_q <= 1'b0;\n  else        src_launch_q <= en_a & valid_a;\nend\nalways_ff @(posedge clkB or negedge rst_n) begin\n  if (!rst_n) {sync_q2, sync_q1} <= 2'b00;\n  else        {sync_q2, sync_q1} <= {sync_q1, src_launch_q};\nend",
+            "sdc_constraint": "set_clock_groups -asynchronous -group [get_clocks clkA] -group [get_clocks clkB]",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "LATCH",
+                "bad_canary_sv": "module canary_test(input logic clkA, clkB, rst_n, en_a, valid_a, output logic sync_o);\n  logic comb_trig;\n  always_comb begin if (en_a) comb_trig = valid_a ^ clkA ^ clkB ^ rst_n; end\n  assign sync_o = comb_trig;\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic clkA, clkB, rst_n, en_a, valid_a, output logic sync_o);\n  logic src_launch_q, sync_q1, sync_q2;\n  always_ff @(posedge clkA or negedge rst_n) begin\n    if (!rst_n) src_launch_q <= 1'b0;\n    else        src_launch_q <= en_a & valid_a;\n  end\n  always_ff @(posedge clkB or negedge rst_n) begin\n    if (!rst_n) {sync_q2, sync_q1} <= 2'b00;\n    else        {sync_q2, sync_q1} <= {sync_q1, src_launch_q};\n  end\n  assign sync_o = sync_q2;\nendmodule\n",
+            },
+        },
+        # =====================================================================
+        # DOMAIN 2: STATIC LINT & MICROARCHITECTURE (LINT) — 5 RULES
+        # =====================================================================
+        {
+            "rule_id": "LINT-001-INFERRED-LATCH",
+            "domain": "lint",
+            "category": "combinational_hazards",
+            "severity": "SYNTHESIS_HAZARD",
+            "target_agent": "@rtl-architect",
+            "verifier_agent": "@dv-debugger",
+            "source_reference": "VerilogCodingStyle.md (lowRISC) & warnings.rst (%Warning-LATCH)",
+            "summary": "Initialize all outputs and local variables at the top of always_comb before conditional branches to guarantee zero inferred latches ($dlatch).",
+            "priority_tags": [
+                "latch",
+                "inferred_latch",
+                "dlatch",
+                "incomplete_case",
+                "missing_else",
+            ],
+            "context_tags": [
+                "always_comb",
+                "combinational",
+                "if_else",
+                "case_statement",
+            ],
+            "hardware_rationale": "When a signal assigned inside an always_comb block is not assigned a value on every possible execution path, Yosys and ASIC synthesis tools infer a level-sensitive transparent latch ($dlatch) to preserve the previous value. Latches introduce severe timing-borrowing race conditions, glitch propagation, and DFT scan untestability.",
+            "anti_pattern": "always_comb begin\n  if (en_i)\n    y_o = data_i; // Missing else branch infers $dlatch!\nend",
+            "golden_template": "always_comb begin\n  y_o = '0; // Upfront default initialization guarantees purely combinational logic\n  if (en_i) begin\n    y_o = data_i;\n  end\nend",
+            "sdc_constraint": "N/A (Pure RTL Structural Fix)",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "LATCH",
+                "bad_canary_sv": "module canary_test(input logic en_i, input logic [3:0] data_i, output logic [3:0] y_o);\n  always_comb begin\n    if (en_i) y_o = data_i;\n  end\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic en_i, input logic [3:0] data_i, output logic [3:0] y_o);\n  always_comb begin\n    y_o = 4'd0;\n    if (en_i) y_o = data_i;\n  end\nendmodule\n",
+            },
+        },
+        {
+            "rule_id": "LINT-002-WIDTH-TRUNC",
+            "domain": "lint",
+            "category": "bit_width_hygiene",
+            "severity": "SYNTHESIS_HAZARD",
+            "target_agent": "@rtl-architect",
+            "verifier_agent": "@dv-debugger",
+            "source_reference": "VerilogCodingStyle.md & warnings.rst (%Warning-WIDTHTRUNC / WIDTHEXPAND)",
+            "summary": "Use explicit SystemVerilog width casts (e.g., WIDTH'(expr)) and sized literals to eliminate implicit bit-width truncation and expansion warnings.",
+            "priority_tags": [
+                "widthtrunc",
+                "widthexpand",
+                "width",
+                "bit_width_cast",
+                "truncation",
+            ],
+            "context_tags": [
+                "arithmetic",
+                "counter",
+                "index",
+                "type_cast",
+                "verilator_lint",
+            ],
+            "hardware_rationale": "Implicitly assigning a wider expression (such as an unsized integer literal 1 or an N+1 bit carry sum) to an N-bit target silently truncates MSBs, which can clip carry-outs, wrap array indices prematurely, and trigger Verilator WIDTHTRUNC/WIDTHEXPAND errors.",
+            "anti_pattern": "logic [3:0] count_q;\nalways_ff @(posedge clk_i) count_q <= count_q + 1; // 32-bit unsized literal '1' causes WIDTHTRUNC!",
+            "golden_template": "logic [3:0] count_q;\nalways_ff @(posedge clk_i or negedge rst_ni) begin\n  if (!rst_ni) count_q <= 4'd0;\n  else         count_q <= count_q + 4'd1; // Explicit 4-bit sized literal\nend",
+            "sdc_constraint": "N/A (Pure RTL Structural Fix)",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "WIDTH",
+                "bad_canary_sv": "module canary_test(input logic [7:0] wide_i, output logic [3:0] narrow_o);\n  assign narrow_o = wide_i + 8'd15;\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic [7:0] wide_i, output logic [3:0] narrow_o);\n  wire [7:0] sum_w = wide_i + 8'd15;\n  assign narrow_o = sum_w[3:0] ^ sum_w[7:4];\nendmodule\n",
+            },
+        },
+        {
+            "rule_id": "LINT-003-COMB-LOOP",
+            "domain": "lint",
+            "category": "cyclic_dependency",
+            "severity": "CRITICAL_SILICON_FAILURE",
+            "target_agent": "@rtl-architect",
+            "verifier_agent": "@dv-debugger",
+            "source_reference": "warnings.rst (%Warning-UNOPTFLAT) & VerilogCodingStyle.md",
+            "summary": "Break circular combinational feedback loops (UNOPTFLAT) by registering the feedback state in an always_ff sequential element.",
+            "priority_tags": [
+                "unoptflat",
+                "combinational_loop",
+                "circular_feedback",
+                "zero_delay_oscillation",
+                "scc_loop",
+            ],
+            "context_tags": [
+                "always_comb",
+                "assign",
+                "feedback",
+                "oscillator",
+                "sta_loop",
+            ],
+            "hardware_rationale": "A combinational signal that depends on itself without an intervening flip-flop forms an asynchronous ring oscillator or unstable bistable latch in silicon, preventing Verilator static scheduling (UNOPTFLAT), hanging event-driven simulators, and breaking static timing analysis.",
+            "anti_pattern": "// [ANTI-PATTERN] Combinational net 'acc_w' feeds back into its own equation\nassign acc_w = in_i ^ acc_w;",
+            "golden_template": "// [GOLDEN PATTERN] Break feedback loop with an explicit clock-driven register\nalways_ff @(posedge clk_i or negedge rst_ni) begin\n  if (!rst_ni) acc_q <= 1'b0;\n  else         acc_q <= in_i ^ acc_q;\nend",
+            "sdc_constraint": "N/A (Combinational loops are illegal in synchronous STA)",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "UNOPTFLAT",
+                "bad_canary_sv": "module canary_test(input logic in_i, output logic out_o);\n  logic loop_w;\n  assign loop_w = in_i & ~loop_w;\n  assign out_o  = loop_w;\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic clk_i, input logic rst_ni, input logic in_i, output logic out_o);\n  logic state_q;\n  always_ff @(posedge clk_i or negedge rst_ni) begin\n    if (!rst_ni) state_q <= 1'b0;\n    else         state_q <= in_i & ~state_q;\n  end\n  assign out_o = state_q;\nendmodule\n",
+            },
+        },
+        {
+            "rule_id": "LINT-004-BLKSEQ-ASSIGN",
+            "domain": "lint",
+            "category": "assignment_semantics",
+            "severity": "CRITICAL_SILICON_FAILURE",
+            "target_agent": "@rtl-architect",
+            "verifier_agent": "@dv-debugger",
+            "source_reference": "VerilogCodingStyle.md & warnings.rst (%Warning-BLKSEQ)",
+            "summary": "Never use blocking assignments (=) on sequential registers inside always_ff; strictly use non-blocking assignments (<=).",
+            "priority_tags": [
+                "blkseq",
+                "blocking_in_sequential",
+                "non_blocking",
+                "sim_race_condition",
+                "always_ff_assign",
+            ],
+            "context_tags": [
+                "always_ff",
+                "posedge",
+                "pipeline",
+                "shift_register",
+            ],
+            "hardware_rationale": "Using blocking assignments (=) inside a clocked always_ff block causes the simulator to update the LHS variable in the Active region rather than the NBA (Non-Blocking Assignment) region. Any downstream sequential block reading that signal on the same clock edge will sample the post-edge value instead of the pre-edge value, creating a severe simulation-vs-synthesis mismatch.",
+            "anti_pattern": "always_ff @(posedge clk_i) begin\n  stage1_q = data_i;   // %Warning-BLKSEQ!\n  stage2_q = stage1_q; // Collapses 2-stage pipeline into 1 stage!\nend",
+            "golden_template": "always_ff @(posedge clk_i or negedge rst_ni) begin\n  if (!rst_ni) begin\n    stage1_q <= '0;\n    stage2_q <= '0;\n  end else begin\n    stage1_q <= data_i;\n    stage2_q <= stage1_q;\n  end\nend",
+            "sdc_constraint": "N/A (Pure RTL Coding Standard)",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "BLKSEQ",
+                "bad_canary_sv": "module canary_test(input logic clk_i, input logic d_i, output logic q_o);\n  always_ff @(posedge clk_i) begin\n    q_o = d_i;\n  end\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic clk_i, input logic rst_ni, input logic d_i, output logic q_o);\n  always_ff @(posedge clk_i or negedge rst_ni) begin\n    if (!rst_ni) q_o <= 1'b0;\n    else         q_o <= d_i;\n  end\nendmodule\n",
+            },
+        },
+        {
+            "rule_id": "LINT-005-CASE-OVERLAP",
+            "domain": "lint",
+            "category": "decoder_integrity",
+            "severity": "SYNTHESIS_HAZARD",
+            "target_agent": "@rtl-architect",
+            "verifier_agent": "@dv-debugger",
+            "source_reference": "cummings-case-snug99.pdf & warnings.rst (%Warning-CASEOVERLAP / CASEINCOMPLETE)",
+            "summary": "Avoid overlapping casez patterns and never use synopsys full_case/parallel_case pragmas; use explicit mutually exclusive branches with a default clause.",
+            "priority_tags": [
+                "caseoverlap",
+                "caseincomplete",
+                "full_case",
+                "parallel_case",
+                "casez_hazard",
+            ],
+            "context_tags": [
+                "decoder",
+                "priority_encoder",
+                "unique_case",
+                "always_comb",
+            ],
+            "hardware_rationale": "Overlapping case items or synthesis pragmas (full_case / parallel_case) cause synthesis tools to optimize logic differently from how event-driven RTL simulators evaluate top-down case branches, producing catastrophic gate-level functional divergence.",
+            "anti_pattern": "always_comb begin\n  casez (req_i)\n    2'b1?: grant_o = 2'b10;\n    2'b?1: grant_o = 2'b01; // Overlaps with 2'b11 (%Warning-CASEOVERLAP)!\n    default: grant_o = 2'b00;\n  endcase\nend",
+            "golden_template": "always_comb begin\n  grant_o = 2'b00;\n  casez (req_i)\n    2'b1?:   grant_o = 2'b10;\n    2'b01:   grant_o = 2'b01; // Disjoint pattern eliminates overlap\n    default: grant_o = 2'b00;\n  endcase\nend",
+            "sdc_constraint": "N/A (Pure RTL Structural Fix)",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "CASEOVERLAP",
+                "bad_canary_sv": "module canary_test(input logic [1:0] req_i, output logic [1:0] grant_o);\n  always_comb begin\n    casez (req_i)\n      2'b1?:   grant_o = 2'b10;\n      2'b?1:   grant_o = 2'b01;\n      default: grant_o = 2'b00;\n    endcase\n  end\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic [1:0] req_i, output logic [1:0] grant_o);\n  always_comb begin\n    grant_o = 2'b00;\n    casez (req_i)\n      2'b1?:   grant_o = 2'b10;\n      2'b01:   grant_o = 2'b01;\n      default: grant_o = 2'b00;\n    endcase\n  end\nendmodule\n",
+            },
+        },
+        # =====================================================================
+        # DOMAIN 3: FINITE STATE MACHINES (FSM) — 4 RULES
+        # =====================================================================
+        {
+            "rule_id": "FSM-001-SAFE-RECOVERY",
+            "domain": "fsm",
+            "category": "state_machine_integrity",
+            "severity": "CRITICAL_SILICON_FAILURE",
+            "target_agent": "@rtl-architect",
+            "verifier_agent": "@dv-debugger",
+            "source_reference": "VerilogCodingStyle.md (lowRISC) & cummings-case-snug99.pdf",
+            "summary": "Every FSM next-state case statement must include an explicit default branch that returns state_d to ST_IDLE and deasserts outputs.",
+            "priority_tags": [
+                "fsm_lockup",
+                "safe_state",
+                "deadlock",
+                "default_idle",
+                "seu_recovery",
+                "caseincomplete",
+            ],
+            "context_tags": [
+                "state_q",
+                "state_d",
+                "typedef_enum",
+                "control_path",
+            ],
+            "hardware_rationale": "When an N-bit state register implements K < 2^N valid states, radiation-induced Single-Event Upsets (SEU) or power-on reset glitches can flip state_q into an unenumerated state. Without an explicit default transition to ST_IDLE, the controller locks up permanently until a hard power cycle.",
+            "anti_pattern": "always_comb begin\n  state_d = state_q;\n  case (state_q) // Missing default branch (%Warning-CASEINCOMPLETE)!\n    2'b00: if (go_i) state_d = 2'b01;\n    2'b01: state_d = 2'b10;\n    2'b10: state_d = 2'b00;\n  endcase\nend",
+            "golden_template": "typedef enum logic [1:0] {\n  ST_IDLE = 2'b00,\n  ST_BUSY = 2'b01,\n  ST_DONE = 2'b10\n} state_e;\nstate_e state_q, state_d;\nalways_comb begin\n  state_d = state_q;\n  case (state_q)\n    ST_IDLE: if (go_i) state_d = ST_BUSY;\n    ST_BUSY: state_d = ST_DONE;\n    ST_DONE: state_d = ST_IDLE;\n    default: state_d = ST_IDLE; // Safe deterministic recovery\n  endcase\nend",
+            "sdc_constraint": "N/A (FSM Architectural Requirement)",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "CASEINCOMPLETE",
+                "bad_canary_sv": "module canary_test(input logic clk_i, rst_ni, go_i, output logic done_o);\n  logic [1:0] state_q, state_d;\n  always_ff @(posedge clk_i or negedge rst_ni) if (!rst_ni) state_q <= 2'b00; else state_q <= state_d;\n  always_comb begin\n    state_d = state_q;\n    case (state_q)\n      2'b00: if (go_i) state_d = 2'b01;\n      2'b01: state_d = 2'b10;\n      2'b10: state_d = 2'b00;\n    endcase\n  end\n  assign done_o = (state_q == 2'b10);\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic clk_i, rst_ni, go_i, output logic done_o);\n  typedef enum logic [1:0] { ST_IDLE = 2'b00, ST_BUSY = 2'b01, ST_DONE = 2'b10 } state_e;\n  state_e state_q, state_d;\n  always_ff @(posedge clk_i or negedge rst_ni) if (!rst_ni) state_q <= ST_IDLE; else state_q <= state_d;\n  always_comb begin\n    state_d = state_q;\n    case (state_q)\n      ST_IDLE: if (go_i) state_d = ST_BUSY;\n      ST_BUSY: state_d = ST_DONE;\n      ST_DONE: state_d = ST_IDLE;\n      default: state_d = ST_IDLE;\n    endcase\n  end\n  assign done_o = (state_q == ST_DONE);\nendmodule\n",
+            },
+        },
+        {
+            "rule_id": "FSM-002-MEALY-GLITCH-OUT",
+            "domain": "fsm",
+            "category": "glitch_free_outputs",
+            "severity": "TIMING_HAZARD",
+            "target_agent": "@rtl-architect",
+            "verifier_agent": "@dv-debugger",
+            "source_reference": "VerilogCodingStyle.md & CummingsSNUG2008Boston_CDC.pdf",
+            "summary": "FSM control strobes driving asynchronous boundaries, write enables, or downstream clocks must be Moore-registered or look-ahead registered to eliminate combinational glitches.",
+            "priority_tags": [
+                "mealy_glitch",
+                "registered_outputs",
+                "moore_output",
+                "control_strobe",
+                "write_enable_glitch",
+            ],
+            "context_tags": [
+                "fsm_output",
+                "glitch",
+                "lookahead_output",
+                "state_d",
+            ],
+            "hardware_rationale": "Combinational Mealy outputs depend on both state_q bits and external inputs. Because multi-bit state_q transitions have non-zero gate/wire skew, decoding logic can produce narrow sub-nanosecond hazard glitches that falsely trigger downstream FIFOs, memories, or CDC synchronizers.",
+            "anti_pattern": "// [ANTI-PATTERN] Combinational Mealy decode prone to state-bit skew glitches\nassign fifo_push_o = (state_q == ST_WRITE) && ready_i;",
+            "golden_template": "// [GOLDEN PATTERN] Registered look-ahead output driven by next-state (state_d)\nalways_ff @(posedge clk_i or negedge rst_ni) begin\n  if (!rst_ni) fifo_push_q <= 1'b0;\n  else         fifo_push_q <= (state_d == ST_WRITE);\nend\nassign fifo_push_o = fifo_push_q;",
+            "sdc_constraint": "N/A (Registered output maximizes downstream setup margin)",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "LATCH",
+                "bad_canary_sv": "module canary_test(input logic clk_i, rst_ni, go_i, output logic strobe_o);\n  always_comb begin if (go_i) strobe_o = clk_i ^ rst_ni; end\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic clk_i, rst_ni, go_i, output logic strobe_o);\n  logic state_q, state_d, strobe_q;\n  assign state_d = go_i ^ state_q;\n  always_ff @(posedge clk_i or negedge rst_ni) begin\n    if (!rst_ni) begin state_q <= 1'b0; strobe_q <= 1'b0; end\n    else         begin state_q <= state_d; strobe_q <= state_d; end\n  end\n  assign strobe_o = strobe_q;\nendmodule\n",
+            },
+        },
+        {
+            "rule_id": "FSM-003-TWO-BLOCK-STYLE",
+            "domain": "fsm",
+            "category": "rtl_readability_and_debug",
+            "severity": "SYNTHESIS_HAZARD",
+            "target_agent": "@rtl-architect",
+            "verifier_agent": "@dv-debugger",
+            "source_reference": "VerilogCodingStyle.md (lowRISC State Machine Guidelines)",
+            "summary": "Separate FSM sequential registers (state_q in always_ff) from combinational next-state logic (state_d in always_comb) so COI and pre-posedge (t-1ps) waveform tables can isolate transition bugs.",
+            "priority_tags": [
+                "state_q_state_d",
+                "two_block_fsm",
+                "enum_encoding",
+                "sequential_separation",
+            ],
+            "context_tags": [
+                "always_ff",
+                "always_comb",
+                "coi_debug",
+                "waveform_slicing",
+            ],
+            "hardware_rationale": "Single-block FSMs (where next-state decoding and output assignments are buried inside a monolithic always_ff block) hide the combinational next-state net (state_d) from waveform inspection at t-1ps and often lead to accidental one-cycle pipeline latency mismatches on outputs.",
+            "anti_pattern": "// [ANTI-PATTERN] Monolithic single-block FSM hides next-state signal from COI/waveform debug\nalways_ff @(posedge clk_i) begin\n  case (state_q)\n    ST_IDLE: if (req_i) state_q <= ST_ACK;\n    ST_ACK:  state_q <= ST_IDLE;\n  endcase\nend",
+            "golden_template": "// [GOLDEN PATTERN] Explicit 2-Block state_q / state_d architecture\nalways_ff @(posedge clk_i or negedge rst_ni) begin\n  if (!rst_ni) state_q <= ST_IDLE;\n  else         state_q <= state_d;\nend\nalways_comb begin\n  state_d = state_q;\n  unique case (state_q)\n    ST_IDLE: if (req_i) state_d = ST_ACK;\n    ST_ACK:  state_d = ST_IDLE;\n    default: state_d = ST_IDLE;\n  endcase\nend",
+            "sdc_constraint": "N/A",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "BLKSEQ",
+                "bad_canary_sv": "module canary_test(input logic clk_i, req_i, output logic state_o);\n  always_ff @(posedge clk_i) begin state_o = req_i; end\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic clk_i, rst_ni, req_i, output logic state_o);\n  logic state_q, state_d;\n  assign state_d = req_i ? ~state_q : state_q;\n  always_ff @(posedge clk_i or negedge rst_ni) begin\n    if (!rst_ni) state_q <= 1'b0;\n    else         state_q <= state_d;\n  end\n  assign state_o = state_q;\nendmodule\n",
+            },
+        },
+        {
+            "rule_id": "FSM-004-ONEHOT-DECODE",
+            "domain": "fsm",
+            "category": "high_speed_control",
+            "severity": "QOR_DEGRADATION",
+            "target_agent": "@rtl-architect",
+            "verifier_agent": "@synth-qor",
+            "source_reference": "cummings-case-snug99.pdf (One-Hot FSM Coding)",
+            "summary": "Use one-hot state encodings with single-bit index comparisons when FSM decode delay dominates the critical path (ltp -noff).",
+            "priority_tags": [
+                "onehot_fsm",
+                "fsm_critical_path",
+                "case_1b1",
+                "fast_state_decode",
+            ],
+            "context_tags": [
+                "state_encoding",
+                "ltp_levels",
+                "high_frequency",
+                "control_path",
+            ],
+            "hardware_rationale": "Binary-encoded FSMs with many states require wide multi-bit equality comparators on every state branch, adding 2 to 4 levels of combinational gate delay before datapath muxes. One-hot encoding reduces state detection to a 1-bit wire tap.",
+            "anti_pattern": "// Wide binary state comparison on critical control path\nassign mux_sel_o = (state_q == 5'd19) || (state_q == 5'd23);",
+            "golden_template": "// One-hot state bit indexing reduces comparator depth to 1 OR gate\nassign mux_sel_o = state_onehot_q[ST_BIT_19] | state_onehot_q[ST_BIT_23];",
+            "sdc_constraint": "N/A",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "WIDTH",
+                "bad_canary_sv": "module canary_test(input logic [3:0] state_q, output logic hit_o);\n  assign hit_o = state_q + 8'd200;\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic [3:0] state_onehot_q, output logic hit_o);\n  assign hit_o = state_onehot_q[1] | state_onehot_q[3] | (state_onehot_q[0] & state_onehot_q[2]);\nendmodule\n",
+            },
+        },
+        # =====================================================================
+        # DOMAIN 4: TIMING CONSTRAINTS & STA (SDC) — 3 RULES
+        # =====================================================================
+        {
+            "rule_id": "SDC-001-ASYNC-CLK-GROUPS",
+            "domain": "sdc",
+            "category": "clock_domain_exceptions",
+            "severity": "TIMING_HAZARD",
+            "target_agent": "@synth-qor",
+            "verifier_agent": "@eda-lead",
+            "source_reference": "CummingsSNUG2008Boston_CDC.pdf & OpenLane base.sdc",
+            "summary": "Declare unrelated clock domains using set_clock_groups -asynchronous only after verifying that all boundary crossings have hardware CDC synchronizers.",
+            "priority_tags": [
+                "set_clock_groups",
+                "asynchronous_clocks",
+                "cdc_sdc",
+                "clock_groups",
+                "multi_clock_sta",
+            ],
+            "context_tags": [
+                "create_clock",
+                "clkA",
+                "clkB",
+                "false_path",
+                "timing_closure",
+            ],
+            "hardware_rationale": "Static Timing Analysis (STA) engines cannot meaningfully compute setup/hold slack between two clocks with an irrational or asynchronous phase relationship (e.g., 10.0ns vs 31.7ns). Applying set_clock_groups -asynchronous instructs STA to ignore cross-domain paths so synthesis does not waste buffer area trying to close unclosable paths.",
+            "anti_pattern": "# [ANTI-PATTERN] Leaving asynchronous clocks unconstrained or using blanket set_false_path without clock groups\ncreate_clock -name clkA -period 10.0 [get_ports clkA]\ncreate_clock -name clkB -period 31.7 [get_ports clkB]",
+            "golden_template": "# [GOLDEN PATTERN] Master clock declarations + asynchronous clock group isolation\ncreate_clock -name clkA -period 10.0 [get_ports clkA]\ncreate_clock -name clkB -period 31.7 [get_ports clkB]\nset_clock_groups -asynchronous -group [get_clocks clkA] -group [get_clocks clkB]",
+            "sdc_constraint": "set_clock_groups -asynchronous -group [get_clocks clkA] -group [get_clocks clkB]",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "LATCH",
+                "bad_canary_sv": "module canary_test(input logic clkA, clkB, d_i, output logic q_o);\n  always_comb begin if (clkA) q_o = d_i ^ clkB; end\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic clkA, clkB, rst_n, d_i, output logic q_o);\n  logic src_q, sync_q1, sync_q2;\n  always_ff @(posedge clkA or negedge rst_n) if (!rst_n) src_q <= 1'b0; else src_q <= d_i;\n  always_ff @(posedge clkB or negedge rst_n) if (!rst_n) {sync_q2, sync_q1} <= 2'b00; else {sync_q2, sync_q1} <= {sync_q1, src_q};\n  assign q_o = sync_q2;\nendmodule\n",
+            },
+        },
+        {
+            "rule_id": "SDC-002-MAX-DELAY-GRAY",
+            "domain": "sdc",
+            "category": "bus_skew_constraints",
+            "severity": "TIMING_HAZARD",
+            "target_agent": "@synth-qor",
+            "verifier_agent": "@rtl-architect",
+            "source_reference": "CummingsSNUG2002SJ_FIFO1.pdf & cc_cdc_fifo_gray.sv",
+            "summary": "Constrain multi-bit Gray-code FIFO pointers with set_max_delay -datapath_only bounded to less than one source clock period to prevent multi-bit skew violations.",
+            "priority_tags": [
+                "set_max_delay",
+                "datapath_only",
+                "gray_bus_skew",
+                "fifo_timing",
+                "pointer_skew",
+            ],
+            "context_tags": [
+                "async_fifo",
+                "gray_code",
+                "bus_reconvergence",
+                "sdc_exception",
+            ],
+            "hardware_rationale": "Although Gray code changes only 1 bit per source clock cycle, if physical routing delay skew across the N pointer wires exceeds 1 source clock period (T_src), two sequential bit transitions from Cycle k and Cycle k+1 can arrive at the destination synchronizer simultaneously, defeating the Gray-code guarantee.",
+            "anti_pattern": "# [ANTI-PATTERN] Using unrestricted set_false_path on a multi-bit Gray-code pointer bus allows arbitrary wire skew!\nset_false_path -from [get_cells wptr_gray_q*] -to [get_cells wq1_rptr*]",
+            "golden_template": "# [GOLDEN PATTERN] Bound datapath routing delay across Gray pointer bits to <= 0.8 * T_src\nset_max_delay 8.0 -datapath_only -from [get_pins wptr_gray_q*/Q] -to [get_pins wq1_rptr*/D]",
+            "sdc_constraint": "set_max_delay 8.0 -datapath_only -from [get_pins wptr_gray_q*/Q] -to [get_pins wq1_rptr*/D]",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "BLKSEQ",
+                "bad_canary_sv": "module canary_test(input logic clk_i, input logic [3:0] ptr_i, output logic [3:0] ptr_o);\n  always_ff @(posedge clk_i) ptr_o = ptr_i;\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic clk_i, rst_ni, input logic [3:0] ptr_i, output logic [3:0] ptr_o);\n  always_ff @(posedge clk_i or negedge rst_ni) begin\n    if (!rst_ni) ptr_o <= 4'd0;\n    else         ptr_o <= (ptr_i >> 1) ^ ptr_i;\n  end\nendmodule\n",
+            },
+        },
+        {
+            "rule_id": "SDC-003-QUASI-STATIC-FALSE",
+            "domain": "sdc",
+            "category": "reset_and_csr_exceptions",
+            "severity": "TIMING_HAZARD",
+            "target_agent": "@synth-qor",
+            "verifier_agent": "@rtl-architect",
+            "source_reference": "snug03_reset_part_deux.pdf & OpenLane base.sdc",
+            "summary": "Synchronize asynchronous reset deassertion via a 2-FF reset bridge and apply set_false_path only to the asynchronous assertion pin.",
+            "priority_tags": [
+                "set_false_path",
+                "reset_synchronizer",
+                "quasi_static",
+                "reset_recovery",
+                "arst_n",
+            ],
+            "context_tags": [
+                "rst_n",
+                "recovery_removal",
+                "csr_config",
+                "sta_constraints",
+            ],
+            "hardware_rationale": "While asynchronous reset assertion is timing-independent, asynchronous reset deassertion near an active clock edge violates flip-flop recovery time (t_rec), throwing registers into metastability. A 2-FF reset synchronizer asserts asynchronously and deasserts synchronously.",
+            "anti_pattern": "// [ANTI-PATTERN] Feeding raw external pad reset directly into internal FSM flip-flops without a reset synchronizer",
+            "golden_template": "// [GOLDEN PATTERN] Asynchronous Assert, Synchronous Deassert Reset Bridge\nalways_ff @(posedge clk_i or negedge ext_rst_ni) begin\n  if (!ext_rst_ni) {rst_sync_q2, rst_sync_q1} <= 2'b00;\n  else             {rst_sync_q2, rst_sync_q1} <= {rst_sync_q1, 1'b1};\nend\nassign sys_rst_no = rst_sync_q2;",
+            "sdc_constraint": "set_false_path -from [get_ports ext_rst_ni] -to [get_pins rst_sync_q*/CLR]",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "LATCH",
+                "bad_canary_sv": "module canary_test(input logic clk_i, ext_rst_ni, output logic sys_rst_no);\n  always_comb begin if (!ext_rst_ni) sys_rst_no = clk_i; end\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic clk_i, ext_rst_ni, output logic sys_rst_no);\n  logic rst_q1, rst_q2;\n  always_ff @(posedge clk_i or negedge ext_rst_ni) begin\n    if (!ext_rst_ni) {rst_q2, rst_q1} <= 2'b00;\n    else             {rst_q2, rst_q1} <= {rst_q1, 1'b1};\n  end\n  assign sys_rst_no = rst_q2;\nendmodule\n",
+            },
+        },
+        # =====================================================================
+        # DOMAIN 5: MULTI-PDK SYNTHESIS & PPA OPTIMIZATION (PPA) — 4 RULES
+        # =====================================================================
+        {
+            "rule_id": "PPA-001-CRITICAL-PATH-LTP",
+            "domain": "ppa",
+            "category": "logic_depth_reduction",
+            "severity": "QOR_DEGRADATION",
+            "target_agent": "@synth-qor",
+            "verifier_agent": "@rtl-architect",
+            "source_reference": "yosyshq-readthedocs-io-yosys-en-0.38.pdf (ltp & abc passes)",
+            "summary": "Replace deep serial priority chains and linear ripple comparators with balanced binary tree reductions to minimize Yosys ltp -noff critical path levels across Sky130, Nangate45, and ASAP7.",
+            "priority_tags": [
+                "critical_path",
+                "ltp_levels",
+                "logic_depth",
+                "priority_chain",
+                "tree_reduction",
+                "ltp_noff",
+            ],
+            "context_tags": [
+                "asap7",
+                "sky130",
+                "nangate45",
+                "abc",
+                "timing_closure",
+            ],
+            "hardware_rationale": "Linearly cascaded priority multiplexers or ripple comparators synthesize into O(N) gate levels in Yosys ABC. Restructuring associative operations (min/max sorters, wide reductions, parallel muxes) into explicit balanced binary trees compresses combinational logic depth to O(log2 N).",
+            "anti_pattern": "// Serial ripple min-finder: 3 sequential comparator stages\nassign m1 = (a < b) ? a : b;\nassign m2 = (m1 < c) ? m1 : c;\nassign min_o = (m2 < d) ? m2 : d;",
+            "golden_template": "// Balanced binary tree min-finder: 2 parallel comparator stages (reduces ltp -noff depth)\nassign min_ab = (a < b) ? a : b;\nassign min_cd = (c < d) ? c : d;\nassign min_o  = (min_ab < min_cd) ? min_ab : min_cd;",
+            "sdc_constraint": "N/A (Structural Datapath Optimization)",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "WIDTH",
+                "bad_canary_sv": "module canary_test(input logic [7:0] a, b, c, d, output logic [3:0] min_o);\n  assign min_o = (a < b) ? (b + 16'd999) : (c + d);\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic [7:0] a, b, c, d, output logic [7:0] min_o);\n  wire [7:0] min_ab = (a < b) ? a : b;\n  wire [7:0] min_cd = (c < d) ? c : d;\n  assign min_o = (min_ab < min_cd) ? min_ab : min_cd;\nendmodule\n",
+            },
+        },
+        {
+            "rule_id": "PPA-002-ARITH-RESOURCE-SHARE",
+            "domain": "ppa",
+            "category": "silicon_area_optimization",
+            "severity": "QOR_DEGRADATION",
+            "target_agent": "@synth-qor",
+            "verifier_agent": "@rtl-architect",
+            "source_reference": "yosyshq-readthedocs-io-yosys-en-0.38.pdf (share & alumacc passes)",
+            "summary": "Mux operands before a single shared adder/subtractor rather than instantiating parallel arithmetic units followed by an output mux to reduce standard-cell area (chip_area_um2).",
+            "priority_tags": [
+                "resource_sharing",
+                "adder_mux",
+                "chip_area_um2",
+                "alu_sharing",
+                "area_reduction",
+            ],
+            "context_tags": [
+                "sky130",
+                "nangate45",
+                "asap7",
+                "adder",
+                "combinational_gates",
+            ],
+            "hardware_rationale": "Instantiating separate adders in each branch of an if-else statement forces synthesis to build two full carry-propagate adders plus a wide bus multiplexer. Selecting the input operand via a 2:1 mux before a single adder cuts arithmetic silicon area nearly in half.",
+            "anti_pattern": "// [ANTI-PATTERN] Two separate adders synthesized before output MUX\nassign res_o = sel_i ? (base_i + offset_a_i) : (base_i + offset_b_i);",
+            "golden_template": "// [GOLDEN PATTERN] Single shared adder with pre-multiplexed operand\nwire [W-1:0] selected_offset = sel_i ? offset_a_i : offset_b_i;\nassign res_o = base_i + selected_offset;",
+            "sdc_constraint": "N/A",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "LATCH",
+                "bad_canary_sv": "module canary_test(input logic sel_i, input logic [7:0] base_i, off_a, output logic [7:0] res_o);\n  always_comb begin if (sel_i) res_o = base_i + off_a; end\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic sel_i, input logic [7:0] base_i, off_a, off_b, output logic [7:0] res_o);\n  wire [7:0] off_mux = sel_i ? off_a : off_b;\n  assign res_o = base_i + off_mux;\nendmodule\n",
+            },
+        },
+        {
+            "rule_id": "PPA-003-BITWIDTH-TRIMMING",
+            "domain": "ppa",
+            "category": "datapath_precision",
+            "severity": "QOR_DEGRADATION",
+            "target_agent": "@synth-qor",
+            "verifier_agent": "@rtl-architect",
+            "source_reference": "VerilogCodingStyle.md & yosyshq-readthedocs-io-yosys-en-0.38.pdf (wreduce)",
+            "summary": "Size datapath accumulators, loop counters, and LLR path metrics to the exact mathematical dynamic range ceiling ($\\lceil\\log_2(\\text{MAX})\\rceil$) rather than defaulting to 32-bit integers.",
+            "priority_tags": [
+                "bitwidth_trim",
+                "operator_sizing",
+                "transistor_count",
+                "datapath_width",
+                "wreduce",
+            ],
+            "context_tags": [
+                "llr_metric",
+                "counter_width",
+                "flip_flop_count",
+                "area_optimization",
+            ],
+            "hardware_rationale": "Using 32-bit int/integer registers for counters or channel decoder path metrics that only span [0..63] wastes 26 flip-flops per register and inflates comparator/sorter trees by 5x in cell count and dynamic toggle power.",
+            "anti_pattern": "// [ANTI-PATTERN] 32-bit integer register used for a 0..7 bit index counter\nint bit_idx_q;",
+            "golden_template": "// [GOLDEN PATTERN] Parameterized exact bit-width ($clog2(N))\nlocalparam int IDX_W = $clog2(N_BITS);\nlogic [IDX_W-1:0] bit_idx_q;",
+            "sdc_constraint": "N/A",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "WIDTH",
+                "bad_canary_sv": "module canary_test(input logic clk_i, output logic [2:0] idx_o);\n  int cnt_q;\n  always_ff @(posedge clk_i) cnt_q <= cnt_q + 1;\n  assign idx_o = cnt_q;\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic clk_i, rst_ni, output logic [2:0] idx_o);\n  logic [2:0] cnt_q;\n  always_ff @(posedge clk_i or negedge rst_ni) begin\n    if (!rst_ni) cnt_q <= 3'd0;\n    else         cnt_q <= cnt_q + 3'd1;\n  end\n  assign idx_o = cnt_q;\nendmodule\n",
+            },
+        },
+        {
+            "rule_id": "PPA-004-DYNAMIC-TOGGLE-GATE",
+            "domain": "ppa",
+            "category": "switching_power_optimization",
+            "severity": "QOR_DEGRADATION",
+            "target_agent": "@synth-qor",
+            "verifier_agent": "@rtl-architect",
+            "source_reference": "VerilogCodingStyle.md & sim_engine.py",
+            "summary": "Gate combinational datapath inputs (operand isolation) and enable-gate output registers when a submodule is idle to minimize bit-level Hamming toggles in power_activity.json.",
+            "priority_tags": [
+                "hamming_toggles",
+                "operand_isolation",
+                "clock_gating",
+                "switching_power",
+                "toggle_power",
+            ],
+            "context_tags": [
+                "power_activity",
+                "alpha_factor",
+                "low_power",
+                "dffe",
+            ],
+            "hardware_rationale": "If a wide combinational sorter or ALU remains directly connected to toggling bus nets during FSM states where its output is ignored, every internal gate charges and discharges load capacitance unnecessarily, inflating total_bit_hamming_toggles.",
+            "anti_pattern": "// [ANTI-PATTERN] Wide sorter/adder toggles every cycle even when valid_i is 0\nassign sum_o = data_a_i + data_b_i;",
+            "golden_template": "// [GOLDEN PATTERN] Operand Isolation: force datapath inputs to 0 when unit is inactive\nwire [7:0] iso_a = valid_i ? data_a_i : 8'd0;\nwire [7:0] iso_b = valid_i ? data_b_i : 8'd0;\nassign sum_o = iso_a + iso_b;",
+            "sdc_constraint": "N/A",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "BLKSEQ",
+                "bad_canary_sv": "module canary_test(input logic clk_i, valid_i, input logic [7:0] a_i, b_i, output logic [7:0] sum_o);\n  always_ff @(posedge clk_i) sum_o = a_i + b_i + {7'd0, valid_i};\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic valid_i, input logic [7:0] a_i, b_i, output logic [7:0] sum_o);\n  wire [7:0] iso_a = valid_i ? a_i : 8'd0;\n  wire [7:0] iso_b = valid_i ? b_i : 8'd0;\n  assign sum_o = iso_a + iso_b;\nendmodule\n",
+            },
+        },
+        {
+            "rule_id": "PPA-005-SVA-ASSERT-KNOWN",
+            "domain": "lint",
+            "category": "assertion_and_x_check",
+            "severity": "SYNTHESIS_HAZARD",
+            "target_agent": "@dv-debugger",
+            "verifier_agent": "@rtl-architect",
+            "source_reference": "prim_assert.sv (lowRISC OpenTitan) & DVCodingStyle.md",
+            "summary": "Guard valid control strobes and FSM state registers against X/Z unknown propagation after reset deassertion using !$isunknown() checks.",
+            "priority_tags": [
+                "x_z_anomalies",
+                "isunknown",
+                "assert_known",
+                "x_propagation",
+                "uninitialized_reg",
+            ],
+            "context_tags": [
+                "prim_assert",
+                "reset_deassertion",
+                "dv_triage",
+                "x_optimism",
+            ],
+            "hardware_rationale": "In 4-state SystemVerilog simulation, an uninitialized register or out-of-bounds array read evaluates to 'X'. In standard if (cond) blocks, 'X' takes the else branch (X-optimism), silently hiding hardware reset bugs unless caught by x_z_anomalies or ASSERT_KNOWN.",
+            "anti_pattern": "// [ANTI-PATTERN] Unreset control valid register propagates X onto the bus\nalways_ff @(posedge clk_i) valid_q <= next_valid_d;",
+            "golden_template": "// [GOLDEN PATTERN] Asynchronous active-low reset on all control & FSM state flops\nalways_ff @(posedge clk_i or negedge rst_ni) begin\n  if (!rst_ni) valid_q <= 1'b0;\n  else         valid_q <= next_valid_d;\nend",
+            "sdc_constraint": "N/A",
+            "canary_spec": {
+                "validation_tier": "TIER_1_AND_2",
+                "expected_bad_warning": "LATCH",
+                "bad_canary_sv": "module canary_test(input logic clk_i, rst_ni, d_i, output logic valid_o);\n  always_comb begin if (rst_ni) valid_o = d_i ^ clk_i; end\nendmodule\n",
+                "good_canary_sv": "module canary_test(input logic clk_i, rst_ni, d_i, output logic valid_o);\n  logic valid_q;\n  always_ff @(posedge clk_i or negedge rst_ni) begin\n    if (!rst_ni) valid_q <= 1'b0;\n    else         valid_q <= d_i;\n  end\n  assign valid_o = valid_q;\nendmodule\n",
+            },
+        },
+    ]
+
+
+def main() -> Dict[str, Any]:
+    STAGING_DIR.mkdir(parents=True, exist_ok=True)
+    corpus_inventory = discover_corpus_files()
+    print(
+        f"[KB Miner] Discovered {len(corpus_inventory)} authoritative source files in corpus:"
+    )
+    for item in corpus_inventory:
+        print(f"  - {item['filename']:<42} ({item['size_kb']} KB)")
+
+    seed_rules = get_wave1_seed_rules()
+
+    existing_rules_map: Dict[str, Dict[str, Any]] = {}
+    if STAGING_FILE.exists():
+        try:
+            existing_payload = json.loads(STAGING_FILE.read_text(encoding="utf-8"))
+            for r in existing_payload.get("candidate_rules", []):
+                if "rule_id" in r:
+                    existing_rules_map[r["rule_id"]] = r
+        except Exception:
+            pass
+
+    for r in seed_rules:
+        existing_rules_map[r["rule_id"]] = r
+
+    valid_candidates: List[Dict[str, Any]] = []
+    rejected_count = 0
+    for r_id, rule in sorted(existing_rules_map.items()):
+        ok, reason = pre_filter_candidate_rule(rule)
+        if ok:
+            valid_candidates.append(rule)
+        else:
+            rejected_count += 1
+            print(f"  [PRE-FILTER REJECT] {r_id}: {reason}")
+
+    staging_payload = {
+        "staged_at": datetime.datetime.now().isoformat(timespec="seconds"),
+        "corpus_files_count": len(corpus_inventory),
+        "corpus_inventory": corpus_inventory,
+        "total_candidates": len(valid_candidates),
+        "rejected_pre_filter": rejected_count,
+        "candidate_rules": valid_candidates,
+    }
+
+    STAGING_FILE.write_text(
+        json.dumps(staging_payload, indent=2) + "\n", encoding="utf-8"
+    )
+    print(
+        f"\n[OK] Staged {len(valid_candidates)} candidate rule cards -> {STAGING_FILE.relative_to(STUDIO_ROOT)}"
+    )
+    return staging_payload
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,42 @@
+{
+  "tool": "iverilog",
+  "version": "Icarus Verilog version 14.0 (devel) (s20260301-631-gce9868196-dirty)",
+  "generated_at": "2026-11-04T13:18:40",
+  "default_compile_invocation": [
+    "iverilog.exe",
+    "-g2012",
+    "-o",
+    "build/simulation/sim.out",
+    "-s",
+    "<tb_top>",
+    "<rtl_files_ordered>",
+    "<tb_files_ordered>"
+  ],
+  "default_runtime_invocation": [
+    "vvp.exe",
+    "build/simulation/sim.out"
+  ],
+  "total_flags": 5,
+  "flags": [
+    {
+      "flag": "-g2012",
+      "description": "Enable IEEE 1800-2012 SystemVerilog generation"
+    },
+    {
+      "flag": "-o <filename>",
+      "description": "Specify compiled vvp output binary path"
+    },
+    {
+      "flag": "-s <topmodule>",
+      "description": "Specify top-level module to elaborate"
+    },
+    {
+      "flag": "-I <includedir>",
+      "description": "Append directory to Verilog include search path"
+    },
+    {
+      "flag": "-D <macro[=defn]>",
+      "description": "Define preprocessor macro"
+    }
+  ]
+}

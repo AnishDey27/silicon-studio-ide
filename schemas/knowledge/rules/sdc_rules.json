@@ -1,0 +1,108 @@
+[
+  {
+    "rule_id": "SDC-001-ASYNC-CLK-GROUPS",
+    "domain": "sdc",
+    "category": "clock_domain_exceptions",
+    "severity": "TIMING_HAZARD",
+    "target_agent": "@synth-qor",
+    "verifier_agent": "@eda-lead",
+    "source_reference": "CummingsSNUG2008Boston_CDC.pdf & OpenLane base.sdc",
+    "summary": "Declare unrelated clock domains using set_clock_groups -asynchronous only after verifying that all boundary crossings have hardware CDC synchronizers.",
+    "priority_tags": [
+      "set_clock_groups",
+      "asynchronous_clocks",
+      "cdc_sdc",
+      "clock_groups",
+      "multi_clock_sta"
+    ],
+    "context_tags": [
+      "create_clock",
+      "clkA",
+      "clkB",
+      "false_path",
+      "timing_closure"
+    ],
+    "hardware_rationale": "Static Timing Analysis (STA) engines cannot meaningfully compute setup/hold slack between two clocks with an irrational or asynchronous phase relationship (e.g., 10.0ns vs 31.7ns). Applying set_clock_groups -asynchronous instructs STA to ignore cross-domain paths so synthesis does not waste buffer area trying to close unclosable paths.",
+    "anti_pattern": "# [ANTI-PATTERN] Leaving asynchronous clocks unconstrained or using blanket set_false_path without clock groups\ncreate_clock -name clkA -period 10.0 [get_ports clkA]\ncreate_clock -name clkB -period 31.7 [get_ports clkB]",
+    "golden_template": "# [GOLDEN PATTERN] Master clock declarations + asynchronous clock group isolation\ncreate_clock -name clkA -period 10.0 [get_ports clkA]\ncreate_clock -name clkB -period 31.7 [get_ports clkB]\nset_clock_groups -asynchronous -group [get_clocks clkA] -group [get_clocks clkB]",
+    "sdc_constraint": "set_clock_groups -asynchronous -group [get_clocks clkA] -group [get_clocks clkB]",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "LATCH",
+      "bad_canary_sv": "module canary_test(input logic clkA, clkB, d_i, output logic q_o);\n  always_comb begin if (clkA) q_o = d_i ^ clkB; end\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic clkA, clkB, rst_n, d_i, output logic q_o);\n  logic src_q, sync_q1, sync_q2;\n  always_ff @(posedge clkA or negedge rst_n) if (!rst_n) src_q <= 1'b0; else src_q <= d_i;\n  always_ff @(posedge clkB or negedge rst_n) if (!rst_n) {sync_q2, sync_q1} <= 2'b00; else {sync_q2, sync_q1} <= {sync_q1, src_q};\n  assign q_o = sync_q2;\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:43"
+  },
+  {
+    "rule_id": "SDC-002-MAX-DELAY-GRAY",
+    "domain": "sdc",
+    "category": "bus_skew_constraints",
+    "severity": "TIMING_HAZARD",
+    "target_agent": "@synth-qor",
+    "verifier_agent": "@rtl-architect",
+    "source_reference": "CummingsSNUG2002SJ_FIFO1.pdf & cc_cdc_fifo_gray.sv",
+    "summary": "Constrain multi-bit Gray-code FIFO pointers with set_max_delay -datapath_only bounded to less than one source clock period to prevent multi-bit skew violations.",
+    "priority_tags": [
+      "set_max_delay",
+      "datapath_only",
+      "gray_bus_skew",
+      "fifo_timing",
+      "pointer_skew"
+    ],
+    "context_tags": [
+      "async_fifo",
+      "gray_code",
+      "bus_reconvergence",
+      "sdc_exception"
+    ],
+    "hardware_rationale": "Although Gray code changes only 1 bit per source clock cycle, if physical routing delay skew across the N pointer wires exceeds 1 source clock period (T_src), two sequential bit transitions from Cycle k and Cycle k+1 can arrive at the destination synchronizer simultaneously, defeating the Gray-code guarantee.",
+    "anti_pattern": "# [ANTI-PATTERN] Using unrestricted set_false_path on a multi-bit Gray-code pointer bus allows arbitrary wire skew!\nset_false_path -from [get_cells wptr_gray_q*] -to [get_cells wq1_rptr*]",
+    "golden_template": "# [GOLDEN PATTERN] Bound datapath routing delay across Gray pointer bits to <= 0.8 * T_src\nset_max_delay 8.0 -datapath_only -from [get_pins wptr_gray_q*/Q] -to [get_pins wq1_rptr*/D]",
+    "sdc_constraint": "set_max_delay 8.0 -datapath_only -from [get_pins wptr_gray_q*/Q] -to [get_pins wq1_rptr*/D]",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "BLKSEQ",
+      "bad_canary_sv": "module canary_test(input logic clk_i, input logic [3:0] ptr_i, output logic [3:0] ptr_o);\n  always_ff @(posedge clk_i) ptr_o = ptr_i;\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic clk_i, rst_ni, input logic [3:0] ptr_i, output logic [3:0] ptr_o);\n  always_ff @(posedge clk_i or negedge rst_ni) begin\n    if (!rst_ni) ptr_o <= 4'd0;\n    else         ptr_o <= (ptr_i >> 1) ^ ptr_i;\n  end\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:43"
+  },
+  {
+    "rule_id": "SDC-003-QUASI-STATIC-FALSE",
+    "domain": "sdc",
+    "category": "reset_and_csr_exceptions",
+    "severity": "TIMING_HAZARD",
+    "target_agent": "@synth-qor",
+    "verifier_agent": "@rtl-architect",
+    "source_reference": "snug03_reset_part_deux.pdf & OpenLane base.sdc",
+    "summary": "Synchronize asynchronous reset deassertion via a 2-FF reset bridge and apply set_false_path only to the asynchronous assertion pin.",
+    "priority_tags": [
+      "set_false_path",
+      "reset_synchronizer",
+      "quasi_static",
+      "reset_recovery",
+      "arst_n"
+    ],
+    "context_tags": [
+      "rst_n",
+      "recovery_removal",
+      "csr_config",
+      "sta_constraints"
+    ],
+    "hardware_rationale": "While asynchronous reset assertion is timing-independent, asynchronous reset deassertion near an active clock edge violates flip-flop recovery time (t_rec), throwing registers into metastability. A 2-FF reset synchronizer asserts asynchronously and deasserts synchronously.",
+    "anti_pattern": "// [ANTI-PATTERN] Feeding raw external pad reset directly into internal FSM flip-flops without a reset synchronizer",
+    "golden_template": "// [GOLDEN PATTERN] Asynchronous Assert, Synchronous Deassert Reset Bridge\nalways_ff @(posedge clk_i or negedge ext_rst_ni) begin\n  if (!ext_rst_ni) {rst_sync_q2, rst_sync_q1} <= 2'b00;\n  else             {rst_sync_q2, rst_sync_q1} <= {rst_sync_q1, 1'b1};\nend\nassign sys_rst_no = rst_sync_q2;",
+    "sdc_constraint": "set_false_path -from [get_ports ext_rst_ni] -to [get_pins rst_sync_q*/CLR]",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "LATCH",
+      "bad_canary_sv": "module canary_test(input logic clk_i, ext_rst_ni, output logic sys_rst_no);\n  always_comb begin if (!ext_rst_ni) sys_rst_no = clk_i; end\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic clk_i, ext_rst_ni, output logic sys_rst_no);\n  logic rst_q1, rst_q2;\n  always_ff @(posedge clk_i or negedge ext_rst_ni) begin\n    if (!ext_rst_ni) {rst_q2, rst_q1} <= 2'b00;\n    else             {rst_q2, rst_q1} <= {rst_q1, 1'b1};\n  end\n  assign sys_rst_no = rst_q2;\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:43"
+  }
+]

@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Silicon Studio IDE V3.0 — Neuro-Symbolic Multi-Agent Workbench</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/wavedrom/3.5.0/skins/default.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/wavedrom/3.5.0/wavedrom.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/obsidian_theme.css" />
+</head>
+<body>
+
+  <!-- ========================================================================
+       1. STICKY TOP IDE HEADER BAR (With Bi-Directional Project Selector)
+       ======================================================================== -->
+  <header class="sticky top-0 h-12 px-4 flex items-center justify-between border-b border-[#242429] bg-[#0c0c0e]/95 backdrop-blur-md shrink-0 z-30">
+    <div class="flex items-center gap-3">
+      <button onclick="toggleTicketDrawer()" title="Open Handoff Blackboard Drawer" class="p-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60 transition">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+        </svg>
+      </button>
+
+      <div class="flex items-center gap-2.5">
+        <span class="text-[15px] font-semibold tracking-tight text-zinc-100">Silicon Studio IDE</span>
+        <span class="text-zinc-600">•</span>
+
+        <!-- Bi-Directional Project Selector Dropdown -->
+        <div class="flex items-center gap-1.5">
+          <select id="hdr-project-select" onchange="onProjectSelectorChange(this.value)" title="Switch Active Project (Synced with Copilot Agents)" class="font-mono-code text-xs px-2.5 py-1 rounded bg-zinc-900 text-cyan-400 border border-zinc-700/80 hover:border-cyan-500/60 focus:outline-none cursor-pointer transition">
+            <option value="polar_scl_decoder">polar_scl_decoder</option>
+          </select>
+          <button onclick="toggleNewProjectModal(true)" title="Create / Register New Project" class="px-2 py-1 rounded bg-zinc-800/90 hover:bg-zinc-700 text-[11px] font-mono-code text-zinc-300 border border-zinc-700/70 transition">
+            + New
+          </button>
+        </div>
+
+        <span id="hdr-sha-badge" class="hidden md:inline-block font-mono-code text-[11px] px-2 py-0.5 rounded bg-zinc-900 text-zinc-400 border border-zinc-800">
+          SHA: --------
+        </span>
+      </div>
+    </div>
+
+    <!-- Center Status Filter Pills -->
+    <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#141418] border border-[#27272a]">
+      <button onclick="setLogFilter('PASS')" class="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono-code font-semibold badge-pass transition hover:brightness-110">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+        <span>PASS</span>
+        <span id="count-pass" class="opacity-90 ml-0.5">0</span>
+      </button>
+      <button onclick="setLogFilter('FAIL')" class="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono-code font-semibold badge-fail transition hover:brightness-110">
+        <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+        <span>FAIL</span>
+        <span id="count-fail" class="opacity-90 ml-0.5">0</span>
+      </button>
+      <button onclick="setLogFilter('STALE')" class="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono-code font-semibold badge-stale transition hover:brightness-110">
+        <span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+        <span>STALE</span>
+        <span id="count-stale" class="opacity-90 ml-0.5">0</span>
+      </button>
+      <button onclick="setLogFilter('ALL')" id="filter-btn-clear" class="hidden text-[10px] font-mono-code text-zinc-400 hover:text-zinc-100 px-1.5" title="Clear log filter">
+        ✕
+      </button>
+    </div>
+
+    <!-- Right Controls -->
+    <div class="flex items-center gap-1.5">
+      <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-900 border border-zinc-800 text-[11px] font-mono-code text-zinc-400 mr-1">
+        <span id="ws-dot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+        <span id="ws-label">SYNC READY</span>
+      </div>
+      <button onclick="toggleTicketDrawer()" title="Inspect Handoff Tickets" class="p-1.5 rounded-md bg-[#141418] border border-[#27272a] text-zinc-400 hover:text-zinc-100 transition">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+      </button>
+      <button onclick="toggleTheme()" title="Toggle Dark / Light Theme" class="p-1.5 rounded-md bg-[#141418] border border-[#27272a] text-zinc-400 hover:text-zinc-100 transition">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+        </svg>
+      </button>
+      <button onclick="toggleHelpModal()" title="Architecture Guide" class="p-1.5 rounded-md bg-[#141418] border border-[#27272a] text-zinc-400 hover:text-zinc-100 transition">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ========================================================================
+       2. MAIN WORKSPACE CONTAINER
+       ======================================================================== -->
+  <main class="flex-1 flex flex-col p-4 gap-4 max-w-[1920px] w-full mx-auto">
+
+    <!-- TIER 1: 2-COLUMN TOP COMMAND ROW -->
+    <section class="grid grid-cols-12 gap-4">
+
+      <!-- COLUMN 1 (4 Cols): MULTI-AGENT TOPOLOGY & CENTRAL TICKET HUB -->
+      <div class="col-span-12 lg:col-span-4 obsidian-panel h-[300px]">
+        <div class="px-3.5 py-1.5 flex items-center justify-between border-b border-[#242429]/80 bg-[#131317] shrink-0">
+          <div class="flex items-center gap-2">
+            <span class="text-[12px] font-semibold text-zinc-100">Multi-Agent Topology</span>
+            <span id="topology-handoff-subtitle" class="text-[10px] font-mono-code text-zinc-400 truncate max-w-[180px]">
+              Idle (Standby)
+            </span>
+          </div>
+          <button onclick="toggleTicketDrawer(true)" class="text-[10px] font-mono-code text-zinc-400 hover:text-zinc-100 px-1.5 py-0.5 rounded hover:bg-zinc-800/60 transition">
+            Inspect Stack ⋮
+          </button>
+        </div>
+
+        <div id="topology-svg-mount" class="flex-1 relative flex items-center justify-center overflow-hidden bg-[#0d0d11]"></div>
+      </div>
+
+      <!-- COLUMN 2 (8 Cols): WIDE AGENT & TOOL EXECUTION LOG -->
+      <div class="col-span-12 lg:col-span-8 obsidian-panel h-[300px]">
+        <div class="px-4 py-1.5 flex items-center justify-between border-b border-[#242429]/80 bg-[#131317] shrink-0">
+          <div class="flex items-center gap-3 flex-wrap">
+            <span class="text-[12px] font-semibold text-zinc-100">Agent &amp; Tool Execution Log</span>
+            <span id="telemetry-count-badge" class="text-[10.5px] font-mono-code text-zinc-400">(0 events)</span>
+            <span class="text-zinc-700">|</span>
+            <div id="pipeline-stepper-pills" class="hidden sm:flex items-center gap-1 font-mono-code text-[10px]">
+              <span id="stage-pill-hierarchy" class="px-2 py-0.5 rounded stage-pill-pending">1.Hier</span>
+              <span class="text-zinc-600">→</span>
+              <span id="stage-pill-lint" class="px-2 py-0.5 rounded stage-pill-pending">2.Lint</span>
+              <span class="text-zinc-600">→</span>
+              <span id="stage-pill-simulation" class="px-2 py-0.5 rounded stage-pill-pending">3.Sim</span>
+              <span class="text-zinc-600">→</span>
+              <span id="stage-pill-synthesis" class="px-2 py-0.5 rounded stage-pill-pending">4.Synth</span>
+              <span id="stage-pill-coi" class="hidden ml-1 px-2 py-0.5 rounded badge-kb" title="Optional Diagnostic COI Slice">🔍 COI</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span id="live-exec-indicator" class="hidden items-center gap-1.5 text-[11px] font-mono-code text-amber-400">
+              <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+              <span id="live-exec-text">Running...</span>
+            </span>
+            <button onclick="setLogFilter('ALL')" class="text-zinc-400 hover:text-zinc-100 text-xs px-2 py-0.5 rounded bg-zinc-800/60 hover:bg-zinc-700/60 transition" title="Show All Events">
+              Show All
+            </button>
+          </div>
+        </div>
+
+        <div class="px-4 py-1 bg-[#111115] border-b border-[#242429]/60 grid grid-cols-12 text-[9.5px] font-mono-code uppercase text-zinc-500 shrink-0">
+          <div class="col-span-2">Timestamp</div>
+          <div class="col-span-2">Active Agent</div>
+          <div class="col-span-6">MCP Tool Call / Knowledge Base &amp; Handoff Details</div>
+          <div class="col-span-2 text-right">Status</div>
+        </div>
+
+        <div id="telemetry-log-container" class="flex-1 overflow-y-auto px-4 py-1.5 space-y-1 font-mono-code text-[11.5px] bg-[#0d0d11]">
+          <div class="py-12 text-center text-zinc-600 text-xs">Waiting for agent execution in active project...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TIER 2: DOMAIN WORKBENCH TABS -->
+    <section class="flex flex-col">
+      <div class="flex items-center justify-between px-1 shrink-0">
+        <div class="flex items-center gap-1">
+          <button onclick="switchMainTab('rtl')" id="tab-btn-rtl" class="workbench-tab active">
+            1. RTL &amp; Architecture <span class="ml-1 text-[11px] text-amber-400 font-mono-code">(@rtl-architect)</span>
+          </button>
+          <button onclick="switchMainTab('dv')" id="tab-btn-dv" class="workbench-tab">
+            2. DV &amp; Waveforms <span class="ml-1 text-[11px] text-cyan-400 font-mono-code">(@dv-debugger)</span>
+          </button>
+          <button onclick="switchMainTab('synth')" id="tab-btn-synth" class="workbench-tab">
+            3. Synthesis, Gate Netlists &amp; PPA <span class="ml-1 text-[11px] text-emerald-400 font-mono-code">(@synth-qor)</span>
+          </button>
+        </div>
+
+        <div class="flex items-center gap-2 pr-2 pb-1">
+          <span onclick="toggleTicketDrawer(true)" class="cursor-pointer font-mono-code text-[11px] px-2.5 py-0.5 rounded badge-kb flex items-center gap-1.5">
+            <span>Active KB Rule:</span>
+            <strong id="active-kb-rule-text">None</strong>
+          </span>
+        </div>
+      </div>
+
+      <div class="obsidian-panel rounded-tl-none min-h-[620px]">
+
+        <!-- TAB 1: RTL & ARCHITECTURE -->
+        <div id="pane-rtl" class="w-full grid grid-cols-12 min-h-[620px]">
+          <div class="col-span-12 lg:col-span-3 border-r border-[#242429] p-4 flex flex-col gap-4 bg-[#111115]">
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <span class="text-[13px] font-semibold text-zinc-200">Verilator Lint Status</span>
+                <span id="rtl-lint-total-badge" class="font-mono-code text-[11px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300 border border-zinc-700">
+                  Pending
+                </span>
+              </div>
+              <div id="rtl-lint-status-list" class="space-y-2 font-mono-code text-xs"></div>
+            </div>
+
+            <div class="border-t border-[#242429] pt-3">
+              <div class="text-[12px] font-semibold text-zinc-300 mb-2">Package-First Compile Order</div>
+              <div id="rtl-hierarchy-list" class="flex flex-wrap gap-1.5 font-mono-code text-[11px]"></div>
+            </div>
+
+            <div class="border-t border-[#242429] pt-3 flex-1 flex flex-col">
+              <div class="text-[11px] text-zinc-400 mb-1.5 font-mono-code">Verilator Static Lint Log (`lint_report.txt`)</div>
+              <pre id="rtl-lint-raw-box" class="flex-1 p-2.5 rounded bg-[#09090b] border border-[#242429] text-[11px] font-mono-code text-zinc-400 max-h-60 overflow-y-auto whitespace-pre-wrap">Awaiting Verilator lint execution...</pre>
+            </div>
+          </div>
+
+          <div id="rtl-studio-panel" class="col-span-12 lg:col-span-9 relative blueprint-grid flex flex-col min-h-[620px] overflow-hidden">
+            <div class="p-3 flex flex-wrap items-center justify-between gap-2 bg-[#141418]/95 border-b border-[#242429] z-20 shrink-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs font-semibold text-zinc-300 mr-1">RTL Block Schematics:</span>
+                <div id="rtl-schematic-selector-bar" class="flex flex-wrap items-center gap-1.5"></div>
+              </div>
+              <div class="flex items-center gap-1">
+                <span class="text-[10.5px] font-mono-code text-zinc-500 mr-1.5 hidden sm:inline">Drag to Pan • Scroll to Cursor-Zoom</span>
+                <button onclick="zoomStudioCentered('rtl', 1.25)" title="Zoom In (+)" class="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-xs font-mono-code text-zinc-200 transition">+</button>
+                <button onclick="zoomStudioCentered('rtl', 0.8)" title="Zoom Out (-)" class="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-xs font-mono-code text-zinc-200 transition">−</button>
+                <button onclick="fitSchematicToViewport('rtl')" title="Fit Schematic to Window" class="px-2.5 py-1 rounded bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500/30 text-[11px] font-mono-code text-amber-300 font-semibold transition">Fit</button>
+                <button onclick="resetStudioTo100('rtl')" id="rtl-zoom-label" title="Reset to Centered 100%" class="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-[11px] font-mono-code text-zinc-300 transition">100%</button>
+                <button onclick="toggleSvgDarkFilter()" id="btn-svg-filter" class="px-2.5 py-1 rounded bg-cyan-500/20 border border-cyan-500/40 text-[11px] font-mono-code text-cyan-300 transition">Dark Blueprint</button>
+                <button onclick="toggleStudioFullscreen('rtl-studio-panel')" title="Maximize Fullscreen" class="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div id="rtl-schematic-viewport" class="schematic-interactive-viewport flex-1 w-full min-h-[540px] cursor-grab active:cursor-grabbing">
+              <div id="rtl-schematic-stage" class="schematic-stage-box svg-dark-Filter"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: DV & WAVEFORMS -->
+        <div id="pane-dv" class="hidden w-full grid grid-cols-12 min-h-[620px]">
+          <div id="wave-left-column" class="col-span-12 lg:col-span-6 border-r border-[#242429] p-4 flex flex-col gap-3 bg-[#111115]">
+            <div id="wave-fullscreen-target" class="flex flex-col gap-2.5">
+              <div class="flex items-center justify-between flex-wrap gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-[13px] font-semibold text-zinc-100">WaveDrom Digital Timing Studio</span>
+                  <span id="dv-sim-status-badge" class="font-mono-code text-[11px] px-2.5 py-0.5 rounded-full badge-pass">PENDING</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <span class="text-[10px] font-mono-code text-zinc-500 mr-1 hidden sm:inline">Wheel: Vert | Shift+Wheel: Horiz</span>
+                  <button onclick="zoomWaveformHorizontal(1.25)" title="Stretch Time Axis Horizontally (+)" class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-xs font-mono-code text-zinc-200 transition">+</button>
+                  <button onclick="zoomWaveformHorizontal(0.8)" title="Compress Time Axis Horizontally (-)" class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-xs font-mono-code text-zinc-200 transition">−</button>
+                  <button onclick="fitWaveformHorizontal()" title="Fit Timeline Width to Box" class="px-2 py-0.5 rounded bg-cyan-500/20 border border-cyan-500/40 text-[11px] font-mono-code text-cyan-300 font-semibold transition">Fit</button>
+                  <button onclick="resetWaveformHorizontal100()" id="wave-zoom-label" title="Reset Time Scale to 100%" class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-[11px] font-mono-code text-zinc-300 transition">100%</button>
+                  <button onclick="toggleWaveformFullscreen()" title="Maximize Waveform Fullscreen" class="btn-fullscreen p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <div id="wave-schematic-viewport" class="waveform-scroll-viewport rounded-lg border border-zinc-700 h-[280px]">
+                <div id="wave-schematic-stage" class="waveform-stage-box p-3">
+                  <div id="wavedrom-container"></div>
+                </div>
+              </div>
+            </div>
+
+            <div id="dv-sim-log-panel" class="flex-1 flex flex-col">
+              <div class="text-[12px] font-semibold text-zinc-300 mb-1.5">Icarus Verilog Simulation Log (`sim_report.txt`)</div>
+              <pre id="dv-sim-log-box" class="flex-1 p-3 rounded-lg bg-[#09090b] border border-[#242429] font-mono-code text-[11.5px] text-zinc-400 max-h-64 overflow-y-auto whitespace-pre-wrap">Awaiting simulation run...</pre>
+            </div>
+          </div>
+
+          <div id="dv-coi-right-column" class="col-span-12 lg:col-span-6 p-4 flex flex-col gap-3 bg-[#0d0d11]">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <span class="text-[13px] font-semibold text-zinc-100">Neuro-Symbolic COI Waveform Slice (`wave_slice.md`)</span>
+                <p class="text-[11px] text-zinc-400 m-0">Post-Posedge (`t`) vs. Pre-Posedge Setup (`t - 1ps`) &amp; Active COI Cone Graph</p>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <button onclick="setWaveTableMode('parsed')" id="btn-wave-parsed" class="px-2.5 py-1 rounded text-xs font-mono-code bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-semibold transition">Dual-Edge Grid</button>
+                <button onclick="setWaveTableMode('coi_graph')" id="btn-wave-coi-graph" class="px-2.5 py-1 rounded text-xs font-mono-code bg-zinc-800 text-zinc-400 hover:text-zinc-100 border border-transparent transition">🔍 COI Graph</button>
+                <button onclick="setWaveTableMode('raw')" id="btn-wave-raw" class="px-2.5 py-1 rounded text-xs font-mono-code bg-zinc-800 text-zinc-400 hover:text-zinc-100 border border-transparent transition">Raw Markdown</button>
+              </div>
+            </div>
+
+            <div id="coi-table-rendered" class="flex-1 overflow-auto rounded-lg border border-[#242429] bg-[#111115] p-3 space-y-4 max-h-[540px]"></div>
+            <div id="coi-graph-visualizer" class="hidden flex-1 overflow-auto rounded-lg border border-[#242429] bg-[#09090b] p-3 max-h-[540px]"></div>
+            <pre id="coi-table-raw" class="hidden flex-1 overflow-auto rounded-lg border border-[#242429] bg-[#09090b] p-3 font-mono-code text-xs text-zinc-300 whitespace-pre max-h-[540px]"></pre>
+          </div>
+        </div>
+
+        <!-- TAB 3: SYNTHESIS, GATE NETLISTS & PPA -->
+        <div id="pane-synth" class="hidden w-full flex flex-col gap-4 p-4 bg-[#0d0d11]">
+          <div class="grid grid-cols-12 gap-4">
+            <div class="col-span-12 lg:col-span-7 p-4 rounded-xl bg-[#111115] border border-[#242429] flex flex-col gap-3">
+              <div class="flex items-center justify-between">
+                <div>
+                  <span class="text-[13px] font-semibold text-zinc-100">Multi-PDK ASIC &amp; FPGA QoR Comparison Matrix</span>
+                  <p class="text-[11px] text-zinc-400 m-0">SkyWater 130nm, Nangate 45nm, and ASAP7 7nm FinFET Liberty Synthesis</p>
+                </div>
+                <span class="font-mono-code text-[11px] px-2.5 py-0.5 rounded badge-pass">PDK QoR</span>
+              </div>
+              <div id="ppa-table-container" class="rounded-lg border border-[#242429] overflow-x-auto bg-[#0d0d11]"></div>
+              <div id="ppa-visual-bars" class="grid grid-cols-1 sm:grid-cols-3 gap-3"></div>
+            </div>
+
+            <div class="col-span-12 lg:col-span-5 p-4 rounded-xl bg-[#111115] border border-[#242429] flex flex-col gap-3">
+              <div class="flex items-center justify-between">
+                <span class="text-[13px] font-semibold text-zinc-100">Dynamic Bit-Hamming Switching Power</span>
+                <span id="power-total-toggles" class="font-mono-code text-xs text-amber-400 font-semibold">0 Bit Flips</span>
+              </div>
+              <div id="power-kpi-cards" class="grid grid-cols-3 gap-2"></div>
+              <div id="power-signals-table" class="overflow-y-auto rounded-lg border border-[#242429] bg-[#0d0d11] max-h-48"></div>
+            </div>
+          </div>
+
+          <div id="gates-studio-panel" class="rounded-xl border border-[#242429] blueprint-grid flex flex-col min-h-[540px] overflow-hidden">
+            <div class="p-3 flex flex-wrap items-center justify-between gap-2 bg-[#141418]/95 border-b border-[#242429] z-20 shrink-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs font-semibold text-emerald-400 mr-1">Synthesized Gate-Level Netlists:</span>
+                <div id="gates-schematic-selector-bar" class="flex flex-wrap items-center gap-1.5"></div>
+              </div>
+              <div class="flex items-center gap-1">
+                <span class="text-[10.5px] font-mono-code text-zinc-500 mr-1.5 hidden sm:inline">Drag to Pan • Scroll to Cursor-Zoom</span>
+                <button onclick="zoomStudioCentered('gates', 1.25)" title="Zoom In (+)" class="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-xs font-mono-code text-zinc-200 transition">+</button>
+                <button onclick="zoomStudioCentered('gates', 0.8)" title="Zoom Out (-)" class="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-xs font-mono-code text-zinc-200 transition">−</button>
+                <button onclick="fitSchematicToViewport('gates')" title="Fit Gate Netlist to Window" class="px-2.5 py-1 rounded bg-emerald-500/20 border border-emerald-500/40 hover:bg-emerald-500/30 text-[11px] font-mono-code text-emerald-300 font-semibold transition">Fit</button>
+                <button onclick="resetStudioTo100('gates')" id="gates-zoom-label" title="Reset to Centered 100%" class="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-[11px] font-mono-code text-zinc-300 transition">100%</button>
+                <button onclick="toggleStudioFullscreen('gates-studio-panel')" title="Maximize Fullscreen" class="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div id="gates-schematic-viewport" class="schematic-interactive-viewport flex-1 w-full min-h-[480px] cursor-grab active:cursor-grabbing">
+              <div id="gates-schematic-stage" class="schematic-stage-box svg-dark-Filter"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <!-- ========================================================================
+       3. SLIDE-OVER INTER-AGENT TICKET DRAWER (With Ticket Timestamp Display)
+       ======================================================================== -->
+  <div id="ticket-drawer-backdrop" onclick="toggleTicketDrawer(false)" class="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 hidden"></div>
+  <aside id="ticket-drawer" class="fixed top-0 right-0 h-full w-full max-w-xl bg-[#121216]/95 backdrop-blur-xl border-l border-[#27272a] shadow-2xl z-50 transform translate-x-full transition-transform duration-300 flex flex-col">
+    <div class="px-5 py-4 border-b border-[#27272a] flex items-center justify-between bg-[#16161c]">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-semibold text-zinc-100">Inter-Agent Handoff Blackboard</span>
+          <span id="drawer-ticket-status" class="font-mono-code text-[11px] px-2 py-0.5 rounded badge-pass">NONE</span>
+        </div>
+        <p class="text-xs text-zinc-400 mt-0.5 mb-0">Root-cause COI &amp; Canary-Validated Pull-RAG citations</p>
+      </div>
+      <button onclick="toggleTicketDrawer(false)" class="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800">✕</button>
+    </div>
+
+    <div id="drawer-ticket-tabs" class="px-5 py-2.5 border-b border-[#27272a] flex items-center gap-2 overflow-x-auto bg-[#0e0e12]"></div>
+
+    <div class="flex-1 overflow-y-auto p-5 space-y-4">
+      <div class="p-3.5 rounded-xl bg-[#18181f] border border-[#27272a] flex flex-col gap-2">
+        <div class="flex items-center justify-between">
+          <div class="font-mono-code text-xs">
+            <span class="text-zinc-400">Handoff:</span>
+            <span id="drawer-from-agent" class="text-cyan-400 font-semibold ml-1">None</span>
+            <span class="text-zinc-500 mx-1.5">→</span>
+            <span id="drawer-to-agent" class="text-amber-400 font-semibold">None</span>
+          </div>
+          <span class="px-2.5 py-1 rounded font-mono-code text-xs badge-kb" id="drawer-kb-rule">None</span>
+        </div>
+        <div class="flex items-center justify-between border-t border-[#27272a]/70 pt-2 text-[11px] font-mono-code text-zinc-400">
+          <span>Created At: <strong id="drawer-ticket-timestamp" class="text-emerald-300">N/A</strong></span>
+          <span>RTL SHA: <strong id="drawer-ticket-sha" class="text-zinc-300">--------</strong></span>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3 font-mono-code text-xs">
+        <div class="p-3 rounded-lg bg-[#0d0d11] border border-[#242429]">
+          <div class="text-zinc-500 text-[10.5px] uppercase">Anchor Timestamp (t₀)</div>
+          <div id="drawer-anchor-t0" class="text-amber-300 font-semibold mt-1">N/A</div>
+        </div>
+        <div class="p-3 rounded-lg bg-[#0d0d11] border border-[#242429]">
+          <div class="text-zinc-500 text-[10.5px] uppercase">Suspect RTL Location</div>
+          <div id="drawer-rtl-loc" class="text-cyan-300 font-semibold mt-1 truncate">N/A</div>
+        </div>
+        <div class="col-span-2 p-3 rounded-lg bg-[#0d0d11] border border-[#242429]">
+          <div class="text-zinc-500 text-[10.5px] uppercase">Causal Cone-of-Influence (COI) Signals</div>
+          <div id="drawer-coi-signals" class="text-zinc-400 mt-1 break-all">None</div>
+        </div>
+      </div>
+
+      <div class="p-4 rounded-xl bg-[#0d0d11] border border-[#242429] space-y-3">
+        <div>
+          <div class="text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1">1. Failure / Task Summary</div>
+          <div id="drawer-summary" class="text-sm text-zinc-400 leading-relaxed">No active tickets for this project.</div>
+        </div>
+        <div class="border-t border-[#242429] pt-3">
+          <div class="text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1">2. Root-Cause Evidence &amp; Action</div>
+          <div id="drawer-evidence" class="text-xs font-mono-code text-zinc-400 leading-relaxed whitespace-pre-wrap">Awaiting inter-agent ticket creation.</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Create / Register New Project Modal (No alert/confirm!) -->
+  <div id="new-project-modal" onclick="toggleNewProjectModal(false)" class="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
+    <div onclick="event.stopPropagation()" class="bg-[#121216] border border-[#27272a] rounded-xl max-w-md w-full p-5 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-[#27272a] pb-2.5">
+        <h3 class="text-sm font-semibold text-zinc-100 m-0">Create / Switch Hardware Project</h3>
+        <button onclick="toggleNewProjectModal(false)" class="text-zinc-400 hover:text-zinc-100">✕</button>
+      </div>
+      <div class="space-y-2">
+        <label class="block text-xs text-zinc-400 font-mono-code">Project Directory Slug (`projects/&lt;name&gt;`):</label>
+        <input id="new-project-input" type="text" placeholder="e.g. uart_tx_controller" class="w-full px-3 py-2 rounded bg-[#09090b] border border-zinc-700 text-xs font-mono-code text-zinc-100 focus:outline-none focus:border-cyan-400" />
+        <p class="text-[11px] text-zinc-500 m-0">Creates `src/`, `verif/`, and `build/` compartments and sets `.silicon_studio/workspace.json` so Copilot agents target it automatically.</p>
+      </div>
+      <div class="flex items-center justify-end gap-2 pt-2">
+        <button onclick="toggleNewProjectModal(false)" class="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-xs font-mono-code text-zinc-300">Cancel</button>
+        <button onclick="submitNewProjectModal()" class="px-3.5 py-1.5 rounded bg-cyan-500/20 border border-cyan-500/50 hover:bg-cyan-500/30 text-xs font-mono-code text-cyan-300 font-semibold">Create &amp; Switch</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Help Modal -->
+  <div id="help-modal" onclick="toggleHelpModal(false)" class="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
+    <div onclick="event.stopPropagation()" class="bg-[#121216] border border-[#27272a] rounded-xl max-w-2xl w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-[#27272a] pb-3">
+        <h3 class="text-base font-semibold text-zinc-100 m-0">Silicon Studio IDE V3.0 — Zero-Copy Neuro-Symbolic Architecture</h3>
+        <button onclick="toggleHelpModal(false)" class="text-zinc-400 hover:text-zinc-100">✕</button>
+      </div>
+      <div class="space-y-3 text-xs text-zinc-300 leading-relaxed">
+        <p class="m-0"><strong class="text-cyan-400">Bi-Directional Project Sync:</strong> Switching projects in the top dropdown updates <code>.silicon_studio/workspace.json</code> so GitHub Copilot agents automatically target that project. Conversely, when an agent creates or switches projects in chat, the UI switches live via WebSocket.</p>
+        <p class="m-0"><strong class="text-amber-400">1. Tab 1 (RTL &amp; Architecture):</strong> Displays Verilator static lint sign-off, package-first compile order, and interactive Hierarchy + Word-Level RTL block schematics.</p>
+        <p class="m-0"><strong class="text-cyan-400">2. Tab 2 (DV &amp; Waveforms):</strong> Displays deduplicated WaveDrom timing diagrams alongside the COI Dual-Edge (<code>t</code> vs <code>t - 1ps</code>) setup table and interactive COI Graph Visualizer.</p>
+        <p class="m-0"><strong class="text-emerald-400">3. Tab 3 (Synthesis, Gate Netlists &amp; PPA):</strong> Displays Multi-PDK PPA metrics (<code>sky130</code>, <code>nangate45</code>, <code>asap7</code>), dynamic Hamming bit-flip power, and staged Gate-Level Netlist schematics.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modular Frontend Scripts (with cache-busting query string) -->
+  <script src="/js/store.js?v=3.3"></script>
+  <script src="/js/pan_zoom_engine.js?v=3.3"></script>
+  <script src="/js/components/navbar.js?v=3.3"></script>
+  <script src="/js/components/topology_graph.js?v=3.3"></script>
+  <script src="/js/components/telemetry_log.js?v=3.3"></script>
+  <script src="/js/components/ticket_drawer.js?v=3.3"></script>
+  <script src="/js/components/tab_rtl_studio.js?v=3.3"></script>
+  <script src="/js/components/tab_dv_studio.js?v=3.3"></script>
+  <script src="/js/components/tab_synth_studio.js?v=3.3"></script>
+  <script src="/js/app.js?v=3.3"></script>
+</body>
+</html>

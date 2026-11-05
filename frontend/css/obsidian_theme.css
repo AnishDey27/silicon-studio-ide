@@ -1,0 +1,561 @@
+/* ==========================================================================
+   File Path: frontend/css/obsidian_theme.css
+   Silicon Studio IDE V3.0 — Complete Obsidian Precision Dark & High-Contrast Light Theme
+   ========================================================================== */
+
+:root {
+  --bg-canvas: #09090b;
+  --bg-panel: #111114;
+  --bg-panel-header: #141418;
+  --bg-elevated: #18181c;
+  --border-subtle: #242429;
+  --border-focus: #3f3f46;
+  --text-primary: #f4f4f5;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+}
+
+html.light-theme {
+  --bg-canvas: #e2e8f0;
+  --bg-panel: #ffffff;
+  --bg-panel-header: #f1f5f9;
+  --bg-elevated: #e2e8f0;
+  --border-subtle: #94a3b8;
+  --border-focus: #475569;
+  --text-primary: #0f172a;
+  --text-secondary: #1e293b;
+  --text-muted: #334155;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  display: flex;
+  flex-direction: column;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.font-mono-code {
+  font-family: 'JetBrains Mono', monospace;
+  font-feature-settings: "liga" 0;
+}
+
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: #0c0c0e;
+}
+::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
+
+.obsidian-panel {
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.65);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.svg-dark-Filter svg {
+  filter: invert(0.93) hue-rotate(180deg) contrast(1.08) brightness(0.95);
+  background: transparent !important;
+}
+html.light-theme .svg-dark-Filter svg {
+  filter: none;
+}
+
+.blueprint-grid {
+  background-color: var(--bg-panel);
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+html.light-theme .blueprint-grid {
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(to right, rgba(15, 23, 42, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(15, 23, 42, 0.08) 1px, transparent 1px);
+}
+
+@keyframes dash-flow {
+  to {
+    stroke-dashoffset: -36;
+  }
+}
+@keyframes pulse-halo {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+}
+@keyframes ticket-float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-2.5px);
+  }
+}
+
+.beam-animated {
+  animation: dash-flow 1.15s linear infinite;
+}
+.agent-halo-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), transform 0.4s ease;
+}
+.agent-halo-pulse.is-active {
+  opacity: 0.95;
+  animation: pulse-halo 1.5s ease-in-out infinite;
+}
+.agent-node-group {
+  transition: opacity 0.35s ease, filter 0.35s ease;
+}
+.agent-node-group.is-idle {
+  opacity: 0.52;
+}
+.agent-node-group.is-active {
+  opacity: 1.0;
+}
+.handoff-beam-group {
+  opacity: 0;
+  transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+.handoff-beam-group.is-active {
+  opacity: 1;
+}
+.ticket-hub-float {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ticket-float 3.2s ease-in-out infinite;
+  cursor: pointer;
+}
+
+.schematic-interactive-viewport {
+  position: relative;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+.schematic-stage-box {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.schematic-interactive-viewport svg {
+  display: block;
+  pointer-events: none;
+  user-select: none;
+}
+
+.waveform-scroll-viewport {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: auto;
+  user-select: none;
+  background-color: #ffffff;
+  color: #0f172a;
+}
+.waveform-stage-box {
+  display: inline-block;
+  min-width: 100%;
+  transform-origin: 0 0;
+}
+
+#wave-fullscreen-target:fullscreen {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-height: 100vh !important;
+  padding: 16px !important;
+  background-color: #09090b !important;
+  display: flex !important;
+  flex-direction: column !important;
+  z-index: 9999 !important;
+}
+#wave-fullscreen-target:fullscreen #wave-schematic-viewport {
+  flex: 1 1 auto !important;
+  height: calc(100vh - 76px) !important;
+  max-height: none !important;
+}
+
+.workbench-tab {
+  position: relative;
+  padding: 10px 22px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: rgba(20, 20, 24, 0.65);
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+.workbench-tab:hover {
+  color: var(--text-primary);
+  background: rgba(30, 30, 36, 0.85);
+}
+.workbench-tab.active {
+  color: var(--text-primary);
+  font-weight: 600;
+  background: var(--bg-panel);
+  border-color: var(--border-subtle);
+  margin-bottom: -1px;
+  padding-bottom: 11px;
+  z-index: 10;
+}
+
+.badge-pass {
+  background: rgba(16, 185, 129, 0.14);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+.badge-fail {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.38);
+}
+.badge-stale {
+  background: rgba(244, 63, 94, 0.15);
+  color: #fb7185;
+  border: 1px solid rgba(244, 63, 94, 0.35);
+}
+.badge-kb {
+  background: rgba(6, 182, 212, 0.16);
+  color: #22d3ee;
+  border: 1px solid rgba(6, 182, 212, 0.4);
+}
+
+.stage-pill-pending {
+  background: rgba(39, 39, 42, 0.45);
+  color: #71717a;
+  border: 1px solid rgba(63, 63, 70, 0.45);
+  transition: all 0.25s ease;
+}
+.stage-pill-running {
+  background: rgba(6, 182, 212, 0.22);
+  color: #67e8f9;
+  border: 1px solid rgba(34, 211, 238, 0.75);
+  box-shadow: 0 0 12px rgba(6, 182, 212, 0.45);
+  animation: pulse 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+.stage-pill-pass {
+  background: rgba(16, 185, 129, 0.16);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  transition: all 0.25s ease;
+}
+.stage-pill-fail {
+  background: rgba(244, 63, 94, 0.18);
+  color: #fb7185;
+  border: 1px solid rgba(244, 63, 94, 0.5);
+}
+.stage-pill-stale {
+  background: rgba(245, 158, 11, 0.14);
+  color: #fbbf24;
+  border: 1px dashed rgba(245, 158, 11, 0.55);
+  text-decoration: line-through;
+  opacity: 0.82;
+}
+
+.agent-pill-lead {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.35);
+}
+.agent-pill-rtl {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+.agent-pill-dv {
+  background: rgba(6, 182, 212, 0.15);
+  color: #22d3ee;
+  border: 1px solid rgba(6, 182, 212, 0.35);
+}
+.agent-pill-synth {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.data-grid-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+}
+.data-grid-table th {
+  position: sticky;
+  top: 0;
+  background: #16161a;
+  color: #a1a1aa;
+  font-weight: 600;
+  text-align: right;
+  padding: 8px 10px;
+  border-bottom: 1px solid #27272a;
+  z-index: 5;
+  white-space: nowrap;
+}
+.data-grid-table th:first-child,
+.data-grid-table td:first-child {
+  text-align: left;
+  position: sticky;
+  left: 0;
+  background: #141418;
+  z-index: 6;
+  border-right: 1px solid #27272a;
+}
+.data-grid-table td {
+  padding: 6px 10px;
+  text-align: right;
+  border-bottom: 1px solid rgba(39, 39, 42, 0.6);
+  color: #e4e4e7;
+  white-space: nowrap;
+}
+.data-grid-table tr.row-t0 td {
+  background: rgba(245, 158, 11, 0.14) !important;
+  color: #fcd34d;
+  font-weight: 600;
+}
+.data-grid-table tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* ==========================================================================
+   HIGH-CONTRAST SILICON DAYLIGHT (LIGHT THEME) OVERRIDES
+   Deep, crisp typography, borders, and saturated badges for maximum legibility
+   ========================================================================== */
+html.light-theme ::-webkit-scrollbar-track {
+  background: #cbd5e1;
+}
+html.light-theme ::-webkit-scrollbar-thumb {
+  background: #64748b;
+}
+html.light-theme .obsidian-panel {
+  background-color: #ffffff !important;
+  border: 1.5px solid #94a3b8 !important;
+  box-shadow: 0 8px 24px -6px rgba(15, 23, 42, 0.18) !important;
+}
+html.light-theme header,
+html.light-theme #ticket-drawer,
+html.light-theme #help-modal > div,
+html.light-theme #new-project-modal > div {
+  background-color: #ffffff !important;
+  border-color: #94a3b8 !important;
+  color: #0f172a !important;
+}
+html.light-theme [class*="bg-[#09090b]"],
+html.light-theme [class*="bg-[#0c0c0e]"],
+html.light-theme [class*="bg-[#0d0d11]"],
+html.light-theme [class*="bg-[#0e0e12]"] {
+  background-color: #f8fafc !important;
+  border-color: #94a3b8 !important;
+}
+html.light-theme [class*="bg-[#111115]"],
+html.light-theme [class*="bg-[#121216]"],
+html.light-theme [class*="bg-[#131317]"],
+html.light-theme [class*="bg-[#141418]"],
+html.light-theme [class*="bg-[#15151a]"],
+html.light-theme [class*="bg-[#16161a]"],
+html.light-theme [class*="bg-[#16161b]"],
+html.light-theme [class*="bg-[#16161c]"],
+html.light-theme [class*="bg-[#18181f]"] {
+  background-color: #e2e8f0 !important;
+  border-color: #94a3b8 !important;
+}
+html.light-theme [class*="bg-zinc-900"],
+html.light-theme [class*="bg-zinc-800"] {
+  background-color: #cbd5e1 !important;
+  border-color: #64748b !important;
+  color: #0f172a !important;
+  font-weight: 600;
+}
+html.light-theme [class*="border-[#242429]"],
+html.light-theme [class*="border-[#27272a]"],
+html.light-theme [class*="border-zinc-800"],
+html.light-theme [class*="border-zinc-700"] {
+  border-color: #94a3b8 !important;
+}
+html.light-theme .text-zinc-100,
+html.light-theme .text-zinc-200,
+html.light-theme .text-zinc-300 {
+  color: #0f172a !important;
+}
+html.light-theme .text-zinc-400,
+html.light-theme .text-zinc-500,
+html.light-theme .text-zinc-600 {
+  color: #1e293b !important;
+}
+html.light-theme .text-cyan-400,
+html.light-theme .text-cyan-300 {
+  color: #0369a1 !important;
+  font-weight: 700 !important;
+}
+html.light-theme .text-amber-400,
+html.light-theme .text-amber-300 {
+  color: #b45309 !important;
+  font-weight: 700 !important;
+}
+html.light-theme .text-emerald-400,
+html.light-theme .text-emerald-300 {
+  color: #047857 !important;
+  font-weight: 700 !important;
+}
+html.light-theme .text-purple-300 {
+  color: #6d28d9 !important;
+  font-weight: 700 !important;
+}
+
+/* High-Contrast Light Theme Badges & Pills */
+html.light-theme .badge-pass,
+html.light-theme .stage-pill-pass {
+  background: #d1fae5 !important;
+  color: #065f46 !important;
+  border: 1.5px solid #059669 !important;
+  font-weight: 700 !important;
+}
+html.light-theme .badge-fail,
+html.light-theme .stage-pill-fail {
+  background: #fee2e2 !important;
+  color: #991b1b !important;
+  border: 1.5px solid #dc2626 !important;
+  font-weight: 700 !important;
+}
+html.light-theme .badge-stale,
+html.light-theme .stage-pill-stale {
+  background: #fef3c7 !important;
+  color: #92400e !important;
+  border: 1.5px dashed #d97706 !important;
+  font-weight: 700 !important;
+}
+html.light-theme .badge-kb,
+html.light-theme .stage-pill-running {
+  background: #e0f2fe !important;
+  color: #075985 !important;
+  border: 1.5px solid #0284c7 !important;
+  font-weight: 700 !important;
+}
+html.light-theme .stage-pill-pending {
+  background: #e2e8f0 !important;
+  color: #334155 !important;
+  border: 1.5px solid #64748b !important;
+  font-weight: 600 !important;
+}
+html.light-theme .agent-pill-lead {
+  background: #ede9fe !important;
+  color: #5b21b6 !important;
+  border: 1.5px solid #7c3aed !important;
+  font-weight: 700 !important;
+}
+html.light-theme .agent-pill-rtl {
+  background: #fef3c7 !important;
+  color: #92400e !important;
+  border: 1.5px solid #d97706 !important;
+  font-weight: 700 !important;
+}
+html.light-theme .agent-pill-dv {
+  background: #e0f2fe !important;
+  color: #075985 !important;
+  border: 1.5px solid #0284c7 !important;
+  font-weight: 700 !important;
+}
+html.light-theme .agent-pill-synth {
+  background: #d1fae5 !important;
+  color: #065f46 !important;
+  border: 1.5px solid #059669 !important;
+  font-weight: 700 !important;
+}
+
+/* High-Contrast Topology SVG Labels in Light Mode */
+html.light-theme .agent-node-group.is-idle {
+  opacity: 0.88 !important;
+}
+html.light-theme #agent-topology-svg text {
+  font-weight: 700 !important;
+}
+html.light-theme #node-group-eda-lead text:first-of-type {
+  fill: #6d28d9 !important;
+}
+html.light-theme #node-group-dv-debugger text:first-of-type {
+  fill: #0369a1 !important;
+}
+html.light-theme #node-group-rtl-architect text:first-of-type {
+  fill: #b45309 !important;
+}
+html.light-theme #node-group-synth-qor text:first-of-type {
+  fill: #047857 !important;
+}
+html.light-theme #svg-ticket-id {
+  fill: #0f172a !important;
+  font-weight: 800 !important;
+}
+
+html.light-theme .workbench-tab {
+  background: #cbd5e1;
+  color: #1e293b;
+  border: 1px solid #94a3b8;
+  font-weight: 600;
+}
+html.light-theme .workbench-tab.active {
+  background: #ffffff;
+  color: #0f172a;
+  border-color: #64748b;
+  font-weight: 700;
+}
+html.light-theme .data-grid-table th {
+  background: #cbd5e1 !important;
+  color: #0f172a !important;
+  font-weight: 700 !important;
+  border-bottom: 1.5px solid #64748b !important;
+}
+html.light-theme .data-grid-table th:first-child,
+html.light-theme .data-grid-table td:first-child {
+  background: #e2e8f0 !important;
+  color: #0f172a !important;
+  font-weight: 700 !important;
+  border-right: 1.5px solid #64748b !important;
+}
+html.light-theme .data-grid-table td {
+  color: #0f172a !important;
+  font-weight: 500;
+  border-bottom: 1px solid #cbd5e1 !important;
+}
+html.light-theme .data-grid-table tr.row-t0 td {
+  background: #fde68a !important;
+  color: #78350f !important;
+  font-weight: 800 !important;
+}

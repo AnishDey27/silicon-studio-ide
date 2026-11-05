@@ -1,0 +1,214 @@
+[
+  {
+    "rule_id": "LINT-001-INFERRED-LATCH",
+    "domain": "lint",
+    "category": "combinational_hazards",
+    "severity": "SYNTHESIS_HAZARD",
+    "target_agent": "@rtl-architect",
+    "verifier_agent": "@dv-debugger",
+    "source_reference": "VerilogCodingStyle.md (lowRISC) & warnings.rst (%Warning-LATCH)",
+    "summary": "Initialize all outputs and local variables at the top of always_comb before conditional branches to guarantee zero inferred latches ($dlatch).",
+    "priority_tags": [
+      "latch",
+      "inferred_latch",
+      "dlatch",
+      "incomplete_case",
+      "missing_else"
+    ],
+    "context_tags": [
+      "always_comb",
+      "combinational",
+      "if_else",
+      "case_statement"
+    ],
+    "hardware_rationale": "When a signal assigned inside an always_comb block is not assigned a value on every possible execution path, Yosys and ASIC synthesis tools infer a level-sensitive transparent latch ($dlatch) to preserve the previous value. Latches introduce severe timing-borrowing race conditions, glitch propagation, and DFT scan untestability.",
+    "anti_pattern": "always_comb begin\n  if (en_i)\n    y_o = data_i; // Missing else branch infers $dlatch!\nend",
+    "golden_template": "always_comb begin\n  y_o = '0; // Upfront default initialization guarantees purely combinational logic\n  if (en_i) begin\n    y_o = data_i;\n  end\nend",
+    "sdc_constraint": "N/A (Pure RTL Structural Fix)",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "LATCH",
+      "bad_canary_sv": "module canary_test(input logic en_i, input logic [3:0] data_i, output logic [3:0] y_o);\n  always_comb begin\n    if (en_i) y_o = data_i;\n  end\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic en_i, input logic [3:0] data_i, output logic [3:0] y_o);\n  always_comb begin\n    y_o = 4'd0;\n    if (en_i) y_o = data_i;\n  end\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:41"
+  },
+  {
+    "rule_id": "LINT-002-WIDTH-TRUNC",
+    "domain": "lint",
+    "category": "bit_width_hygiene",
+    "severity": "SYNTHESIS_HAZARD",
+    "target_agent": "@rtl-architect",
+    "verifier_agent": "@dv-debugger",
+    "source_reference": "VerilogCodingStyle.md & warnings.rst (%Warning-WIDTHTRUNC / WIDTHEXPAND)",
+    "summary": "Use explicit SystemVerilog width casts (e.g., WIDTH'(expr)) and sized literals to eliminate implicit bit-width truncation and expansion warnings.",
+    "priority_tags": [
+      "widthtrunc",
+      "widthexpand",
+      "width",
+      "bit_width_cast",
+      "truncation"
+    ],
+    "context_tags": [
+      "arithmetic",
+      "counter",
+      "index",
+      "type_cast",
+      "verilator_lint"
+    ],
+    "hardware_rationale": "Implicitly assigning a wider expression (such as an unsized integer literal 1 or an N+1 bit carry sum) to an N-bit target silently truncates MSBs, which can clip carry-outs, wrap array indices prematurely, and trigger Verilator WIDTHTRUNC/WIDTHEXPAND errors.",
+    "anti_pattern": "logic [3:0] count_q;\nalways_ff @(posedge clk_i) count_q <= count_q + 1; // 32-bit unsized literal '1' causes WIDTHTRUNC!",
+    "golden_template": "logic [3:0] count_q;\nalways_ff @(posedge clk_i or negedge rst_ni) begin\n  if (!rst_ni) count_q <= 4'd0;\n  else         count_q <= count_q + 4'd1; // Explicit 4-bit sized literal\nend",
+    "sdc_constraint": "N/A (Pure RTL Structural Fix)",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "WIDTH",
+      "bad_canary_sv": "module canary_test(input logic [7:0] wide_i, output logic [3:0] narrow_o);\n  assign narrow_o = wide_i + 8'd15;\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic [7:0] wide_i, output logic [3:0] narrow_o);\n  wire [7:0] sum_w = wide_i + 8'd15;\n  assign narrow_o = sum_w[3:0] ^ sum_w[7:4];\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:42"
+  },
+  {
+    "rule_id": "LINT-003-COMB-LOOP",
+    "domain": "lint",
+    "category": "cyclic_dependency",
+    "severity": "CRITICAL_SILICON_FAILURE",
+    "target_agent": "@rtl-architect",
+    "verifier_agent": "@dv-debugger",
+    "source_reference": "warnings.rst (%Warning-UNOPTFLAT) & VerilogCodingStyle.md",
+    "summary": "Break circular combinational feedback loops (UNOPTFLAT) by registering the feedback state in an always_ff sequential element.",
+    "priority_tags": [
+      "unoptflat",
+      "combinational_loop",
+      "circular_feedback",
+      "zero_delay_oscillation",
+      "scc_loop"
+    ],
+    "context_tags": [
+      "always_comb",
+      "assign",
+      "feedback",
+      "oscillator",
+      "sta_loop"
+    ],
+    "hardware_rationale": "A combinational signal that depends on itself without an intervening flip-flop forms an asynchronous ring oscillator or unstable bistable latch in silicon, preventing Verilator static scheduling (UNOPTFLAT), hanging event-driven simulators, and breaking static timing analysis.",
+    "anti_pattern": "// [ANTI-PATTERN] Combinational net 'acc_w' feeds back into its own equation\nassign acc_w = in_i ^ acc_w;",
+    "golden_template": "// [GOLDEN PATTERN] Break feedback loop with an explicit clock-driven register\nalways_ff @(posedge clk_i or negedge rst_ni) begin\n  if (!rst_ni) acc_q <= 1'b0;\n  else         acc_q <= in_i ^ acc_q;\nend",
+    "sdc_constraint": "N/A (Combinational loops are illegal in synchronous STA)",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "UNOPTFLAT",
+      "bad_canary_sv": "module canary_test(input logic in_i, output logic out_o);\n  logic loop_w;\n  assign loop_w = in_i & ~loop_w;\n  assign out_o  = loop_w;\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic clk_i, input logic rst_ni, input logic in_i, output logic out_o);\n  logic state_q;\n  always_ff @(posedge clk_i or negedge rst_ni) begin\n    if (!rst_ni) state_q <= 1'b0;\n    else         state_q <= in_i & ~state_q;\n  end\n  assign out_o = state_q;\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:42"
+  },
+  {
+    "rule_id": "LINT-004-BLKSEQ-ASSIGN",
+    "domain": "lint",
+    "category": "assignment_semantics",
+    "severity": "CRITICAL_SILICON_FAILURE",
+    "target_agent": "@rtl-architect",
+    "verifier_agent": "@dv-debugger",
+    "source_reference": "VerilogCodingStyle.md & warnings.rst (%Warning-BLKSEQ)",
+    "summary": "Never use blocking assignments (=) on sequential registers inside always_ff; strictly use non-blocking assignments (<=).",
+    "priority_tags": [
+      "blkseq",
+      "blocking_in_sequential",
+      "non_blocking",
+      "sim_race_condition",
+      "always_ff_assign"
+    ],
+    "context_tags": [
+      "always_ff",
+      "posedge",
+      "pipeline",
+      "shift_register"
+    ],
+    "hardware_rationale": "Using blocking assignments (=) inside a clocked always_ff block causes the simulator to update the LHS variable in the Active region rather than the NBA (Non-Blocking Assignment) region. Any downstream sequential block reading that signal on the same clock edge will sample the post-edge value instead of the pre-edge value, creating a severe simulation-vs-synthesis mismatch.",
+    "anti_pattern": "always_ff @(posedge clk_i) begin\n  stage1_q = data_i;   // %Warning-BLKSEQ!\n  stage2_q = stage1_q; // Collapses 2-stage pipeline into 1 stage!\nend",
+    "golden_template": "always_ff @(posedge clk_i or negedge rst_ni) begin\n  if (!rst_ni) begin\n    stage1_q <= '0;\n    stage2_q <= '0;\n  end else begin\n    stage1_q <= data_i;\n    stage2_q <= stage1_q;\n  end\nend",
+    "sdc_constraint": "N/A (Pure RTL Coding Standard)",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "BLKSEQ",
+      "bad_canary_sv": "module canary_test(input logic clk_i, input logic d_i, output logic q_o);\n  always_ff @(posedge clk_i) begin\n    q_o = d_i;\n  end\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic clk_i, input logic rst_ni, input logic d_i, output logic q_o);\n  always_ff @(posedge clk_i or negedge rst_ni) begin\n    if (!rst_ni) q_o <= 1'b0;\n    else         q_o <= d_i;\n  end\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:42"
+  },
+  {
+    "rule_id": "LINT-005-CASE-OVERLAP",
+    "domain": "lint",
+    "category": "decoder_integrity",
+    "severity": "SYNTHESIS_HAZARD",
+    "target_agent": "@rtl-architect",
+    "verifier_agent": "@dv-debugger",
+    "source_reference": "cummings-case-snug99.pdf & warnings.rst (%Warning-CASEOVERLAP / CASEINCOMPLETE)",
+    "summary": "Avoid overlapping casez patterns and never use synopsys full_case/parallel_case pragmas; use explicit mutually exclusive branches with a default clause.",
+    "priority_tags": [
+      "caseoverlap",
+      "caseincomplete",
+      "full_case",
+      "parallel_case",
+      "casez_hazard"
+    ],
+    "context_tags": [
+      "decoder",
+      "priority_encoder",
+      "unique_case",
+      "always_comb"
+    ],
+    "hardware_rationale": "Overlapping case items or synthesis pragmas (full_case / parallel_case) cause synthesis tools to optimize logic differently from how event-driven RTL simulators evaluate top-down case branches, producing catastrophic gate-level functional divergence.",
+    "anti_pattern": "always_comb begin\n  casez (req_i)\n    2'b1?: grant_o = 2'b10;\n    2'b?1: grant_o = 2'b01; // Overlaps with 2'b11 (%Warning-CASEOVERLAP)!\n    default: grant_o = 2'b00;\n  endcase\nend",
+    "golden_template": "always_comb begin\n  grant_o = 2'b00;\n  casez (req_i)\n    2'b1?:   grant_o = 2'b10;\n    2'b01:   grant_o = 2'b01; // Disjoint pattern eliminates overlap\n    default: grant_o = 2'b00;\n  endcase\nend",
+    "sdc_constraint": "N/A (Pure RTL Structural Fix)",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "CASEOVERLAP",
+      "bad_canary_sv": "module canary_test(input logic [1:0] req_i, output logic [1:0] grant_o);\n  always_comb begin\n    casez (req_i)\n      2'b1?:   grant_o = 2'b10;\n      2'b?1:   grant_o = 2'b01;\n      default: grant_o = 2'b00;\n    endcase\n  end\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic [1:0] req_i, output logic [1:0] grant_o);\n  always_comb begin\n    grant_o = 2'b00;\n    casez (req_i)\n      2'b1?:   grant_o = 2'b10;\n      2'b01:   grant_o = 2'b01;\n      default: grant_o = 2'b00;\n    endcase\n  end\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:42"
+  },
+  {
+    "rule_id": "PPA-005-SVA-ASSERT-KNOWN",
+    "domain": "lint",
+    "category": "assertion_and_x_check",
+    "severity": "SYNTHESIS_HAZARD",
+    "target_agent": "@dv-debugger",
+    "verifier_agent": "@rtl-architect",
+    "source_reference": "prim_assert.sv (lowRISC OpenTitan) & DVCodingStyle.md",
+    "summary": "Guard valid control strobes and FSM state registers against X/Z unknown propagation after reset deassertion using !$isunknown() checks.",
+    "priority_tags": [
+      "x_z_anomalies",
+      "isunknown",
+      "assert_known",
+      "x_propagation",
+      "uninitialized_reg"
+    ],
+    "context_tags": [
+      "prim_assert",
+      "reset_deassertion",
+      "dv_triage",
+      "x_optimism"
+    ],
+    "hardware_rationale": "In 4-state SystemVerilog simulation, an uninitialized register or out-of-bounds array read evaluates to 'X'. In standard if (cond) blocks, 'X' takes the else branch (X-optimism), silently hiding hardware reset bugs unless caught by x_z_anomalies or ASSERT_KNOWN.",
+    "anti_pattern": "// [ANTI-PATTERN] Unreset control valid register propagates X onto the bus\nalways_ff @(posedge clk_i) valid_q <= next_valid_d;",
+    "golden_template": "// [GOLDEN PATTERN] Asynchronous active-low reset on all control & FSM state flops\nalways_ff @(posedge clk_i or negedge rst_ni) begin\n  if (!rst_ni) valid_q <= 1'b0;\n  else         valid_q <= next_valid_d;\nend",
+    "sdc_constraint": "N/A",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "LATCH",
+      "bad_canary_sv": "module canary_test(input logic clk_i, rst_ni, d_i, output logic valid_o);\n  always_comb begin if (rst_ni) valid_o = d_i ^ clk_i; end\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic clk_i, rst_ni, d_i, output logic valid_o);\n  logic valid_q;\n  always_ff @(posedge clk_i or negedge rst_ni) begin\n    if (!rst_ni) valid_q <= 1'b0;\n    else         valid_q <= d_i;\n  end\n  assign valid_o = valid_q;\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:43"
+  }
+]

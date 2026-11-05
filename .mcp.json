@@ -1,0 +1,20 @@
+{
+	"mcpServers": {
+		"silicon-studio-mcp": {
+			"type": "stdio",
+			"command": "D:\\BePro\\silicon-studio-ide/.venv/Scripts/python.exe",
+			"args": [
+				"-u",
+				"D:\\BePro\\silicon-studio-ide/backend/mcp/silicon_mcp_server.py"
+			],
+			"tools": [
+				"*"
+			],
+			"env": {
+				"PYTHONPATH": "D:\\BePro\\silicon-studio-ide",
+				"PYTHONUTF8": "1",
+				"OSS_CAD_SUITE_PATH": "C:\\oss-cad-suite"
+			}
+		}
+	}
+}

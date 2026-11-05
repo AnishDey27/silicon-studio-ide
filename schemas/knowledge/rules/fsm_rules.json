@@ -1,0 +1,141 @@
+[
+  {
+    "rule_id": "FSM-001-SAFE-RECOVERY",
+    "domain": "fsm",
+    "category": "state_machine_integrity",
+    "severity": "CRITICAL_SILICON_FAILURE",
+    "target_agent": "@rtl-architect",
+    "verifier_agent": "@dv-debugger",
+    "source_reference": "VerilogCodingStyle.md (lowRISC) & cummings-case-snug99.pdf",
+    "summary": "Every FSM next-state case statement must include an explicit default branch that returns state_d to ST_IDLE and deasserts outputs.",
+    "priority_tags": [
+      "fsm_lockup",
+      "safe_state",
+      "deadlock",
+      "default_idle",
+      "seu_recovery",
+      "caseincomplete"
+    ],
+    "context_tags": [
+      "state_q",
+      "state_d",
+      "typedef_enum",
+      "control_path"
+    ],
+    "hardware_rationale": "When an N-bit state register implements K < 2^N valid states, radiation-induced Single-Event Upsets (SEU) or power-on reset glitches can flip state_q into an unenumerated state. Without an explicit default transition to ST_IDLE, the controller locks up permanently until a hard power cycle.",
+    "anti_pattern": "always_comb begin\n  state_d = state_q;\n  case (state_q) // Missing default branch (%Warning-CASEINCOMPLETE)!\n    2'b00: if (go_i) state_d = 2'b01;\n    2'b01: state_d = 2'b10;\n    2'b10: state_d = 2'b00;\n  endcase\nend",
+    "golden_template": "typedef enum logic [1:0] {\n  ST_IDLE = 2'b00,\n  ST_BUSY = 2'b01,\n  ST_DONE = 2'b10\n} state_e;\nstate_e state_q, state_d;\nalways_comb begin\n  state_d = state_q;\n  case (state_q)\n    ST_IDLE: if (go_i) state_d = ST_BUSY;\n    ST_BUSY: state_d = ST_DONE;\n    ST_DONE: state_d = ST_IDLE;\n    default: state_d = ST_IDLE; // Safe deterministic recovery\n  endcase\nend",
+    "sdc_constraint": "N/A (FSM Architectural Requirement)",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "CASEINCOMPLETE",
+      "bad_canary_sv": "module canary_test(input logic clk_i, rst_ni, go_i, output logic done_o);\n  logic [1:0] state_q, state_d;\n  always_ff @(posedge clk_i or negedge rst_ni) if (!rst_ni) state_q <= 2'b00; else state_q <= state_d;\n  always_comb begin\n    state_d = state_q;\n    case (state_q)\n      2'b00: if (go_i) state_d = 2'b01;\n      2'b01: state_d = 2'b10;\n      2'b10: state_d = 2'b00;\n    endcase\n  end\n  assign done_o = (state_q == 2'b10);\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic clk_i, rst_ni, go_i, output logic done_o);\n  typedef enum logic [1:0] { ST_IDLE = 2'b00, ST_BUSY = 2'b01, ST_DONE = 2'b10 } state_e;\n  state_e state_q, state_d;\n  always_ff @(posedge clk_i or negedge rst_ni) if (!rst_ni) state_q <= ST_IDLE; else state_q <= state_d;\n  always_comb begin\n    state_d = state_q;\n    case (state_q)\n      ST_IDLE: if (go_i) state_d = ST_BUSY;\n      ST_BUSY: state_d = ST_DONE;\n      ST_DONE: state_d = ST_IDLE;\n      default: state_d = ST_IDLE;\n    endcase\n  end\n  assign done_o = (state_q == ST_DONE);\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:41"
+  },
+  {
+    "rule_id": "FSM-002-MEALY-GLITCH-OUT",
+    "domain": "fsm",
+    "category": "glitch_free_outputs",
+    "severity": "TIMING_HAZARD",
+    "target_agent": "@rtl-architect",
+    "verifier_agent": "@dv-debugger",
+    "source_reference": "VerilogCodingStyle.md & CummingsSNUG2008Boston_CDC.pdf",
+    "summary": "FSM control strobes driving asynchronous boundaries, write enables, or downstream clocks must be Moore-registered or look-ahead registered to eliminate combinational glitches.",
+    "priority_tags": [
+      "mealy_glitch",
+      "registered_outputs",
+      "moore_output",
+      "control_strobe",
+      "write_enable_glitch"
+    ],
+    "context_tags": [
+      "fsm_output",
+      "glitch",
+      "lookahead_output",
+      "state_d"
+    ],
+    "hardware_rationale": "Combinational Mealy outputs depend on both state_q bits and external inputs. Because multi-bit state_q transitions have non-zero gate/wire skew, decoding logic can produce narrow sub-nanosecond hazard glitches that falsely trigger downstream FIFOs, memories, or CDC synchronizers.",
+    "anti_pattern": "// [ANTI-PATTERN] Combinational Mealy decode prone to state-bit skew glitches\nassign fifo_push_o = (state_q == ST_WRITE) && ready_i;",
+    "golden_template": "// [GOLDEN PATTERN] Registered look-ahead output driven by next-state (state_d)\nalways_ff @(posedge clk_i or negedge rst_ni) begin\n  if (!rst_ni) fifo_push_q <= 1'b0;\n  else         fifo_push_q <= (state_d == ST_WRITE);\nend\nassign fifo_push_o = fifo_push_q;",
+    "sdc_constraint": "N/A (Registered output maximizes downstream setup margin)",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "LATCH",
+      "bad_canary_sv": "module canary_test(input logic clk_i, rst_ni, go_i, output logic strobe_o);\n  always_comb begin if (go_i) strobe_o = clk_i ^ rst_ni; end\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic clk_i, rst_ni, go_i, output logic strobe_o);\n  logic state_q, state_d, strobe_q;\n  assign state_d = go_i ^ state_q;\n  always_ff @(posedge clk_i or negedge rst_ni) begin\n    if (!rst_ni) begin state_q <= 1'b0; strobe_q <= 1'b0; end\n    else         begin state_q <= state_d; strobe_q <= state_d; end\n  end\n  assign strobe_o = strobe_q;\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:41"
+  },
+  {
+    "rule_id": "FSM-003-TWO-BLOCK-STYLE",
+    "domain": "fsm",
+    "category": "rtl_readability_and_debug",
+    "severity": "SYNTHESIS_HAZARD",
+    "target_agent": "@rtl-architect",
+    "verifier_agent": "@dv-debugger",
+    "source_reference": "VerilogCodingStyle.md (lowRISC State Machine Guidelines)",
+    "summary": "Separate FSM sequential registers (state_q in always_ff) from combinational next-state logic (state_d in always_comb) so COI and pre-posedge (t-1ps) waveform tables can isolate transition bugs.",
+    "priority_tags": [
+      "state_q_state_d",
+      "two_block_fsm",
+      "enum_encoding",
+      "sequential_separation"
+    ],
+    "context_tags": [
+      "always_ff",
+      "always_comb",
+      "coi_debug",
+      "waveform_slicing"
+    ],
+    "hardware_rationale": "Single-block FSMs (where next-state decoding and output assignments are buried inside a monolithic always_ff block) hide the combinational next-state net (state_d) from waveform inspection at t-1ps and often lead to accidental one-cycle pipeline latency mismatches on outputs.",
+    "anti_pattern": "// [ANTI-PATTERN] Monolithic single-block FSM hides next-state signal from COI/waveform debug\nalways_ff @(posedge clk_i) begin\n  case (state_q)\n    ST_IDLE: if (req_i) state_q <= ST_ACK;\n    ST_ACK:  state_q <= ST_IDLE;\n  endcase\nend",
+    "golden_template": "// [GOLDEN PATTERN] Explicit 2-Block state_q / state_d architecture\nalways_ff @(posedge clk_i or negedge rst_ni) begin\n  if (!rst_ni) state_q <= ST_IDLE;\n  else         state_q <= state_d;\nend\nalways_comb begin\n  state_d = state_q;\n  unique case (state_q)\n    ST_IDLE: if (req_i) state_d = ST_ACK;\n    ST_ACK:  state_d = ST_IDLE;\n    default: state_d = ST_IDLE;\n  endcase\nend",
+    "sdc_constraint": "N/A",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "BLKSEQ",
+      "bad_canary_sv": "module canary_test(input logic clk_i, req_i, output logic state_o);\n  always_ff @(posedge clk_i) begin state_o = req_i; end\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic clk_i, rst_ni, req_i, output logic state_o);\n  logic state_q, state_d;\n  assign state_d = req_i ? ~state_q : state_q;\n  always_ff @(posedge clk_i or negedge rst_ni) begin\n    if (!rst_ni) state_q <= 1'b0;\n    else         state_q <= state_d;\n  end\n  assign state_o = state_q;\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:41"
+  },
+  {
+    "rule_id": "FSM-004-ONEHOT-DECODE",
+    "domain": "fsm",
+    "category": "high_speed_control",
+    "severity": "QOR_DEGRADATION",
+    "target_agent": "@rtl-architect",
+    "verifier_agent": "@synth-qor",
+    "source_reference": "cummings-case-snug99.pdf (One-Hot FSM Coding)",
+    "summary": "Use one-hot state encodings with single-bit index comparisons when FSM decode delay dominates the critical path (ltp -noff).",
+    "priority_tags": [
+      "onehot_fsm",
+      "fsm_critical_path",
+      "case_1b1",
+      "fast_state_decode"
+    ],
+    "context_tags": [
+      "state_encoding",
+      "ltp_levels",
+      "high_frequency",
+      "control_path"
+    ],
+    "hardware_rationale": "Binary-encoded FSMs with many states require wide multi-bit equality comparators on every state branch, adding 2 to 4 levels of combinational gate delay before datapath muxes. One-hot encoding reduces state detection to a 1-bit wire tap.",
+    "anti_pattern": "// Wide binary state comparison on critical control path\nassign mux_sel_o = (state_q == 5'd19) || (state_q == 5'd23);",
+    "golden_template": "// One-hot state bit indexing reduces comparator depth to 1 OR gate\nassign mux_sel_o = state_onehot_q[ST_BIT_19] | state_onehot_q[ST_BIT_23];",
+    "sdc_constraint": "N/A",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "WIDTH",
+      "bad_canary_sv": "module canary_test(input logic [3:0] state_q, output logic hit_o);\n  assign hit_o = state_q + 8'd200;\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic [3:0] state_onehot_q, output logic hit_o);\n  assign hit_o = state_onehot_q[1] | state_onehot_q[3] | (state_onehot_q[0] & state_onehot_q[2]);\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:41"
+  }
+]

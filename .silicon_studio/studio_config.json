@@ -1,0 +1,50 @@
+{
+  "studio_version": "3.0.0",
+  "studio_name": "Silicon Studio IDE — Autonomous Neuro-Symbolic EDA Workbench",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8080,
+    "ws_path": "/ws",
+    "auto_open_browser": false
+  },
+  "toolchain": {
+    "oss_cad_suite_root": "C:\\oss-cad-suite",
+    "fixed_tools": [
+      "yosys",
+      "verilator",
+      "iverilog"
+    ],
+    "default_timeout_sec": 45
+  },
+  "synthesis_targets": {
+    "default_asic_pdks": [
+      "sky130",
+      "nangate45",
+      "asap7"
+    ],
+    "pdk_liberty_files": {
+      "sky130": [
+        "pdk_lib/sky130_fd_sc_hd/sky130_fd_sc_hd__tt_025C_1v80.lib"
+      ],
+      "nangate45": [
+        "pdk_lib/nangate45/NangateOpenCellLibrary_typical.lib"
+      ],
+      "asap7": [
+        "pdk_lib/asap7/asap7sc7p5t_INVBUF_RVT_TT_nldm_220122.lib",
+        "pdk_lib/asap7/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib",
+        "pdk_lib/asap7/asap7sc7p5t_SEQ_RVT_TT_nldm_220123.lib"
+      ]
+    },
+    "fpga_targets": [
+      "artix7",
+      "ice40",
+      "ecp5",
+      "cyclonev"
+    ]
+  },
+  "ui_defaults": {
+    "theme": "dark",
+    "svg_dark_blueprint": true,
+    "max_telemetry_events": 250
+  }
+}

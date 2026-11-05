@@ -1,0 +1,20 @@
+{
+  "rule_id": "CDC-001-PULSE-SWALLOW",
+  "domain": "cdc",
+  "category": "pulse_synchronization",
+  "severity": "CRITICAL_SILICON_FAILURE",
+  "target_agent": "@rtl-architect",
+  "summary": "Fast-to-slow clock pulses require toggle-handshake logic, not direct 2-FF synchronizers.",
+  "priority_tags": ["pulse_swallowing", "fast_to_slow", "burst_pulse", "toggle_handshake"],
+  "context_tags": ["asynchronous", "two_flop", "fsm_trigger"],
+  "hardware_rationale": "If destination clock period T_dst > source pulse width T_src, the pulse can assert and deassert between sampling edges, causing silent command loss.",
+  "anti_pattern_snippet": "always_ff @(posedge clkB) begin q1 <= cmd_pulse_clkA; q2 <= q1; end",
+  "golden_template_snippet": "// Domain A: Toggle\nalways_ff @(posedge clkA or negedge rstA_n) if (!rstA_n) t_q <= 1'b0; else if (pulse_in && !busy) t_q <= ~t_q;\n// Domain B: 2-FF + XOR edge detect\nalways_ff @(posedge clkB or negedge rstB_n) if (!rstB_n) {s3, s2, s1} <= '0; else {s3, s2, s1} <= {s2, s1, t_q};\nassign pulse_out = s2 ^ s3;",
+  "sdc_constraint": "set_clock_groups -asynchronous -group [get_clocks clkA] -group [get_clocks clkB]",
+  "canary_spec": {
+    "validator": "verilator",
+    "expected_warning": null,
+    "bad_canary_sv": "module bad (input clkA, clkB, rst_n, in_p, output out_p); reg s1, s2; always_ff @(posedge clkB) {out_p, s1} <= {s1, in_p}; endmodule",
+    "good_canary_sv": "module good (input clkA, clkB, rst_n, in_p, output out_p); reg t, s1, s2, s3; always_ff @(posedge clkA) if (in_p) t <= ~t; always_ff @(posedge clkB) {s3, s2, s1} <= {s2, s1, t}; assign out_p = s2 ^ s3; endmodule"
+  }
+}

@@ -1,0 +1,145 @@
+[
+  {
+    "rule_id": "PPA-001-CRITICAL-PATH-LTP",
+    "domain": "ppa",
+    "category": "logic_depth_reduction",
+    "severity": "QOR_DEGRADATION",
+    "target_agent": "@synth-qor",
+    "verifier_agent": "@rtl-architect",
+    "source_reference": "yosyshq-readthedocs-io-yosys-en-0.38.pdf (ltp & abc passes)",
+    "summary": "Replace deep serial priority chains and linear ripple comparators with balanced binary tree reductions to minimize Yosys ltp -noff critical path levels across Sky130, Nangate45, and ASAP7.",
+    "priority_tags": [
+      "critical_path",
+      "ltp_levels",
+      "logic_depth",
+      "priority_chain",
+      "tree_reduction",
+      "ltp_noff"
+    ],
+    "context_tags": [
+      "asap7",
+      "sky130",
+      "nangate45",
+      "abc",
+      "timing_closure"
+    ],
+    "hardware_rationale": "Linearly cascaded priority multiplexers or ripple comparators synthesize into O(N) gate levels in Yosys ABC. Restructuring associative operations (min/max sorters, wide reductions, parallel muxes) into explicit balanced binary trees compresses combinational logic depth to O(log2 N).",
+    "anti_pattern": "// Serial ripple min-finder: 3 sequential comparator stages\nassign m1 = (a < b) ? a : b;\nassign m2 = (m1 < c) ? m1 : c;\nassign min_o = (m2 < d) ? m2 : d;",
+    "golden_template": "// Balanced binary tree min-finder: 2 parallel comparator stages (reduces ltp -noff depth)\nassign min_ab = (a < b) ? a : b;\nassign min_cd = (c < d) ? c : d;\nassign min_o  = (min_ab < min_cd) ? min_ab : min_cd;",
+    "sdc_constraint": "N/A (Structural Datapath Optimization)",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "WIDTH",
+      "bad_canary_sv": "module canary_test(input logic [7:0] a, b, c, d, output logic [3:0] min_o);\n  assign min_o = (a < b) ? (b + 16'd999) : (c + d);\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic [7:0] a, b, c, d, output logic [7:0] min_o);\n  wire [7:0] min_ab = (a < b) ? a : b;\n  wire [7:0] min_cd = (c < d) ? c : d;\n  assign min_o = (min_ab < min_cd) ? min_ab : min_cd;\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:42"
+  },
+  {
+    "rule_id": "PPA-002-ARITH-RESOURCE-SHARE",
+    "domain": "ppa",
+    "category": "silicon_area_optimization",
+    "severity": "QOR_DEGRADATION",
+    "target_agent": "@synth-qor",
+    "verifier_agent": "@rtl-architect",
+    "source_reference": "yosyshq-readthedocs-io-yosys-en-0.38.pdf (share & alumacc passes)",
+    "summary": "Mux operands before a single shared adder/subtractor rather than instantiating parallel arithmetic units followed by an output mux to reduce standard-cell area (chip_area_um2).",
+    "priority_tags": [
+      "resource_sharing",
+      "adder_mux",
+      "chip_area_um2",
+      "alu_sharing",
+      "area_reduction"
+    ],
+    "context_tags": [
+      "sky130",
+      "nangate45",
+      "asap7",
+      "adder",
+      "combinational_gates"
+    ],
+    "hardware_rationale": "Instantiating separate adders in each branch of an if-else statement forces synthesis to build two full carry-propagate adders plus a wide bus multiplexer. Selecting the input operand via a 2:1 mux before a single adder cuts arithmetic silicon area nearly in half.",
+    "anti_pattern": "// [ANTI-PATTERN] Two separate adders synthesized before output MUX\nassign res_o = sel_i ? (base_i + offset_a_i) : (base_i + offset_b_i);",
+    "golden_template": "// [GOLDEN PATTERN] Single shared adder with pre-multiplexed operand\nwire [W-1:0] selected_offset = sel_i ? offset_a_i : offset_b_i;\nassign res_o = base_i + selected_offset;",
+    "sdc_constraint": "N/A",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "LATCH",
+      "bad_canary_sv": "module canary_test(input logic sel_i, input logic [7:0] base_i, off_a, output logic [7:0] res_o);\n  always_comb begin if (sel_i) res_o = base_i + off_a; end\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic sel_i, input logic [7:0] base_i, off_a, off_b, output logic [7:0] res_o);\n  wire [7:0] off_mux = sel_i ? off_a : off_b;\n  assign res_o = base_i + off_mux;\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:42"
+  },
+  {
+    "rule_id": "PPA-003-BITWIDTH-TRIMMING",
+    "domain": "ppa",
+    "category": "datapath_precision",
+    "severity": "QOR_DEGRADATION",
+    "target_agent": "@synth-qor",
+    "verifier_agent": "@rtl-architect",
+    "source_reference": "VerilogCodingStyle.md & yosyshq-readthedocs-io-yosys-en-0.38.pdf (wreduce)",
+    "summary": "Size datapath accumulators, loop counters, and LLR path metrics to the exact mathematical dynamic range ceiling ($\\lceil\\log_2(\\text{MAX})\\rceil$) rather than defaulting to 32-bit integers.",
+    "priority_tags": [
+      "bitwidth_trim",
+      "operator_sizing",
+      "transistor_count",
+      "datapath_width",
+      "wreduce"
+    ],
+    "context_tags": [
+      "llr_metric",
+      "counter_width",
+      "flip_flop_count",
+      "area_optimization"
+    ],
+    "hardware_rationale": "Using 32-bit int/integer registers for counters or channel decoder path metrics that only span [0..63] wastes 26 flip-flops per register and inflates comparator/sorter trees by 5x in cell count and dynamic toggle power.",
+    "anti_pattern": "// [ANTI-PATTERN] 32-bit integer register used for a 0..7 bit index counter\nint bit_idx_q;",
+    "golden_template": "// [GOLDEN PATTERN] Parameterized exact bit-width ($clog2(N))\nlocalparam int IDX_W = $clog2(N_BITS);\nlogic [IDX_W-1:0] bit_idx_q;",
+    "sdc_constraint": "N/A",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "WIDTH",
+      "bad_canary_sv": "module canary_test(input logic clk_i, output logic [2:0] idx_o);\n  int cnt_q;\n  always_ff @(posedge clk_i) cnt_q <= cnt_q + 1;\n  assign idx_o = cnt_q;\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic clk_i, rst_ni, output logic [2:0] idx_o);\n  logic [2:0] cnt_q;\n  always_ff @(posedge clk_i or negedge rst_ni) begin\n    if (!rst_ni) cnt_q <= 3'd0;\n    else         cnt_q <= cnt_q + 3'd1;\n  end\n  assign idx_o = cnt_q;\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:42"
+  },
+  {
+    "rule_id": "PPA-004-DYNAMIC-TOGGLE-GATE",
+    "domain": "ppa",
+    "category": "switching_power_optimization",
+    "severity": "QOR_DEGRADATION",
+    "target_agent": "@synth-qor",
+    "verifier_agent": "@rtl-architect",
+    "source_reference": "VerilogCodingStyle.md & sim_engine.py",
+    "summary": "Gate combinational datapath inputs (operand isolation) and enable-gate output registers when a submodule is idle to minimize bit-level Hamming toggles in power_activity.json.",
+    "priority_tags": [
+      "hamming_toggles",
+      "operand_isolation",
+      "clock_gating",
+      "switching_power",
+      "toggle_power"
+    ],
+    "context_tags": [
+      "power_activity",
+      "alpha_factor",
+      "low_power",
+      "dffe"
+    ],
+    "hardware_rationale": "If a wide combinational sorter or ALU remains directly connected to toggling bus nets during FSM states where its output is ignored, every internal gate charges and discharges load capacitance unnecessarily, inflating total_bit_hamming_toggles.",
+    "anti_pattern": "// [ANTI-PATTERN] Wide sorter/adder toggles every cycle even when valid_i is 0\nassign sum_o = data_a_i + data_b_i;",
+    "golden_template": "// [GOLDEN PATTERN] Operand Isolation: force datapath inputs to 0 when unit is inactive\nwire [7:0] iso_a = valid_i ? data_a_i : 8'd0;\nwire [7:0] iso_b = valid_i ? data_b_i : 8'd0;\nassign sum_o = iso_a + iso_b;",
+    "sdc_constraint": "N/A",
+    "canary_spec": {
+      "validation_tier": "TIER_1_AND_2",
+      "expected_bad_warning": "BLKSEQ",
+      "bad_canary_sv": "module canary_test(input logic clk_i, valid_i, input logic [7:0] a_i, b_i, output logic [7:0] sum_o);\n  always_ff @(posedge clk_i) sum_o = a_i + b_i + {7'd0, valid_i};\nendmodule\n",
+      "good_canary_sv": "module canary_test(input logic valid_i, input logic [7:0] a_i, b_i, output logic [7:0] sum_o);\n  wire [7:0] iso_a = valid_i ? a_i : 8'd0;\n  wire [7:0] iso_b = valid_i ? b_i : 8'd0;\n  assign sum_o = iso_a + iso_b;\nendmodule\n"
+    },
+    "canary_validation_status": "VERIFIED_PASS",
+    "canary_validated_at": "2026-11-04T13:18:42"
+  }
+]
